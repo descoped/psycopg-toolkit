@@ -1,0 +1,32 @@
+[tool.poetry]
+name = "pysco-db"
+version = "0.1.0"
+description = "A Python PostgreSQL database utility"
+authors = ["Ove Ranheim <oranheim@gmail.com>"]
+readme = "README.md"
+packages = [{ include = "pysco_db", from = "src" }]
+license = "MIT"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+psycopg = "^3.1.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+flake8 = "^6.0.0"
+mypy = "^1.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
