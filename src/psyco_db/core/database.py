@@ -1,25 +1,37 @@
+# src/psyco_db/core/database.py
+
 import logging
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, Callable, List, Optional
 
 import psycopg
-from fastapi import HTTPException
 from psycopg_pool import AsyncConnectionPool
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from metadocs.core.config import get_settings
-from metadocs.services.db_import_document_types_service import DbImportDocumentTypesService
+from .config import DatabaseSettings
+from ..exceptions import DatabaseConnectionError, DatabaseNotAvailable, DatabasePoolError
 
 logger = logging.getLogger(__name__)
-settings = get_settings()
 
 
 class Database:
     """
     Database management class that handles connection pooling and database operations.
     """
-    def __init__(self):
+
+    def __init__(self, settings: DatabaseSettings):
         self._pool: Optional[AsyncConnectionPool] = None
+        self._settings = settings
+        self._init_callbacks: List[Callable[[AsyncConnectionPool], None]] = []
+
+    def register_init_callback(self, callback: Callable[[AsyncConnectionPool], None]) -> None:
+        """
+        Register a callback to be executed after pool initialization.
+
+        Args:
+            callback: Async function that takes a pool instance and performs initialization
+        """
+        self._init_callbacks.append(callback)
 
     @retry(
         stop=stop_after_attempt(5),
@@ -28,67 +40,62 @@ class Database:
     def ping_postgres(self) -> bool:
         """
         Ping the PostgreSQL database to check if it's up and reachable.
+
+        Raises:
+            DatabaseConnectionError: If connection fails
         """
         try:
-            logger.info(f"Pinging PostgreSQL at host: {settings.POSTGRES_HOST}, "
-                        f"dbname: {settings.POSTGRES_DB}, "
-                        f"user: {settings.POSTGRES_USER}")
+            logger.info(f"Pinging PostgreSQL at host: {self._settings.host}, "
+                        f"dbname: {self._settings.dbname}, "
+                        f"user: {self._settings.user}")
 
-            conn = psycopg.connect(
-                host=settings.POSTGRES_HOST,
-                port=settings.POSTGRES_PORT,
-                dbname=settings.POSTGRES_DB,
-                user=settings.POSTGRES_USER,
-                password=settings.POSTGRES_PASSWORD
-            )
+            conn = psycopg.connect(self._settings.connection_string)
             conn.close()
             logger.info("Successfully connected to PostgreSQL.")
             return True
         except Exception as e:
-            logger.error(f"Error: Could not connect to PostgreSQL. Details: {e}")
-            return False
+            error_msg = f"Could not connect to PostgreSQL"
+            logger.error(f"Error: {error_msg}. Details: {e}")
+            raise DatabaseConnectionError(error_msg, original_error=e)
 
     async def create_pool(self) -> Optional[AsyncConnectionPool]:
         """
         Create a database connection pool if PostgreSQL is reachable.
-        """
-        if not self.ping_postgres():
-            return None
 
+        Raises:
+            DatabasePoolError: If pool creation fails
+        """
         try:
+            self.ping_postgres()
             logger.info("Initializing connection pool to PostgreSQL.")
+
             pool = AsyncConnectionPool(
-                conninfo=(
-                    f"host={settings.POSTGRES_HOST} "
-                    f"port={settings.POSTGRES_PORT} "
-                    f"dbname={settings.POSTGRES_DB} "
-                    f"user={settings.POSTGRES_USER} "
-                    f"password={settings.POSTGRES_PASSWORD}"
-                ),
-                min_size=5,
-                max_size=20,
-                timeout=30,
-                open=False  # Important: Don't open in constructor
+                conninfo=self._settings.connection_string,
+                min_size=self._settings.min_pool_size,
+                max_size=self._settings.max_pool_size,
+                timeout=self._settings.pool_timeout,
+                open=False
             )
-            # Explicitly open the pool
             await pool.open()
             self._pool = pool
             return pool
         except Exception as e:
-            logger.error(f"Error: Could not create connection pool to PostgreSQL. Details: {e}")
-            return None
+            error_msg = "Could not create connection pool to PostgreSQL"
+            logger.error(f"Error: {error_msg}. Details: {e}")
+            raise DatabasePoolError(error_msg)
 
     async def get_pool(self) -> AsyncConnectionPool:
         """
         Get existing pool or create new one if none exists.
+
+        Raises:
+            DatabaseNotAvailable: If database is not available
         """
         if self._pool is None:
-            self._pool = await self.create_pool()
-            if self._pool is None:
-                raise HTTPException(
-                    status_code=503,
-                    detail="Database is not available."
-                )
+            try:
+                self._pool = await self.create_pool()
+            except Exception as e:
+                raise DatabaseNotAvailable("Database is not available") from e
         return self._pool
 
     @asynccontextmanager
@@ -102,15 +109,17 @@ class Database:
 
     async def init_db(self) -> None:
         """
-        Initialize the database pool on application startup.
+        Initialize the database pool and execute registered callbacks.
         """
         try:
             pool = await self.get_pool()
-            async with pool.connection() as conn:
+            async with pool.connection():
                 logger.info("Database pool initialized successfully.")
-                # populate db here
-                db_import = DbImportDocumentTypesService()
-                await db_import.initialize_db(pool)
+
+                # Execute registered initialization callbacks
+                for callback in self._init_callbacks:
+                    await callback(pool)
+
         except Exception as e:
             logger.error(f"Failed to initialize database: {e}")
             raise
@@ -126,9 +135,6 @@ class Database:
                 logger.info("Database connection pool closed successfully.")
             except Exception as e:
                 logger.error(f"Error closing database pool: {e}")
+                raise DatabasePoolError("Failed to close database pool") from e
             finally:
                 self._pool = None
-
-
-# Create singleton instance
-db = Database()
