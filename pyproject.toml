@@ -37,3 +37,9 @@ asyncio_default_fixture_loop_scope = "function"  # Add this line
 markers = [
     "asyncio: mark test as async",
 ]
+
+[[tool.poetry.source]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+default = false
+secondary = false
