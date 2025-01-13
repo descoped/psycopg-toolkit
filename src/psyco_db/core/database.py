@@ -9,6 +9,7 @@ from psycopg_pool import AsyncConnectionPool
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from .config import DatabaseSettings
+from .transaction import TransactionManager
 from ..exceptions import DatabaseConnectionError, DatabaseNotAvailable, DatabasePoolError
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,19 @@ class Database:
         self._pool: Optional[AsyncConnectionPool] = None
         self._settings = settings
         self._init_callbacks: List[Callable[[AsyncConnectionPool], None]] = []
+        self._transaction_manager: Optional[TransactionManager] = None
+
+    @property
+    def transaction_manager(self) -> TransactionManager:
+        """
+        Get the transaction manager instance.
+
+        Returns:
+            TransactionManager: Instance for managing database transactions
+        """
+        if self._transaction_manager is None:
+            self._transaction_manager = TransactionManager(self)
+        return self._transaction_manager
 
     def register_init_callback(self, callback: Callable[[AsyncConnectionPool], None]) -> None:
         """

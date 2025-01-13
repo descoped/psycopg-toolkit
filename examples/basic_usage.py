@@ -1,6 +1,8 @@
 """Basic usage example of PsycoDB."""
 import asyncio
+
 from psyco_db import Database, DatabaseSettings
+
 
 async def main():
     # Initialize database settings
