@@ -51,7 +51,7 @@ async def test_register_callback(database):
     async def callback(pool):
         pass
 
-    database.register_init_callback(callback)
+    await database.register_init_callback(callback)
     assert len(database._init_callbacks) == 1
 
 
@@ -138,7 +138,7 @@ async def test_connection_manager(database, mock_pool):
 @pytest.mark.asyncio
 async def test_init_db(database):
     callback_mock = AsyncMock()
-    database.register_init_callback(callback_mock)
+    await database.register_init_callback(callback_mock)
 
     with patch('psyco_db.core.database.psycopg.connect') as mock_connect:
         mock_conn = Mock()

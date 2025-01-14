@@ -1,8 +1,7 @@
-# src/psyco_db/core/database.py
-
 import logging
+from asyncio import Lock
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator, Callable, List, Optional
+from typing import AsyncGenerator, Callable, List, Optional, Awaitable
 
 import psycopg
 from psycopg_pool import AsyncConnectionPool
@@ -23,29 +22,33 @@ class Database:
     def __init__(self, settings: DatabaseSettings):
         self._pool: Optional[AsyncConnectionPool] = None
         self._settings = settings
-        self._init_callbacks: List[Callable[[AsyncConnectionPool], None]] = []
+        self._init_callbacks: List[Callable[[AsyncConnectionPool], Awaitable[None]]] = []
         self._transaction_manager: Optional[TransactionManager] = None
+        self._pool_lock = Lock()  # Add thread lock
+        self._callbacks_lock = Lock()  # Separate lock for callbacks
+        self._transaction_manager_lock = Lock()
 
-    @property
-    def transaction_manager(self) -> TransactionManager:
+    async def get_transaction_manager(self) -> TransactionManager:
         """
         Get the transaction manager instance.
 
         Returns:
             TransactionManager: Instance for managing database transactions
         """
-        if self._transaction_manager is None:
-            self._transaction_manager = TransactionManager(self)
-        return self._transaction_manager
+        async with self._transaction_manager_lock:
+            if self._transaction_manager is None:
+                self._transaction_manager = TransactionManager(self)
+            return self._transaction_manager
 
-    def register_init_callback(self, callback: Callable[[AsyncConnectionPool], None]) -> None:
+    async def register_init_callback(self, callback: Callable[[AsyncConnectionPool], Awaitable[None]]) -> None:
         """
         Register a callback to be executed after pool initialization.
 
         Args:
             callback: Async function that takes a pool instance and performs initialization
         """
-        self._init_callbacks.append(callback)
+        async with self._callbacks_lock:
+            self._init_callbacks.append(callback)
 
     @retry(
         stop=stop_after_attempt(5),
@@ -105,12 +108,19 @@ class Database:
         Raises:
             DatabaseNotAvailable: If database is not available
         """
-        if self._pool is None:
+
+        if self._pool is not None:
+            return self._pool
+
+        async with self._pool_lock:
+            if self._pool is not None:
+                return self._pool
+
             try:
                 self._pool = await self.create_pool()
             except Exception as e:
                 raise DatabaseNotAvailable("Database is not available") from e
-        return self._pool
+            return self._pool
 
     @asynccontextmanager
     async def connection(self) -> AsyncGenerator[AsyncConnectionPool, None]:
@@ -142,13 +152,29 @@ class Database:
         """
         Cleanup database resources on shutdown.
         """
-        if self._pool is not None:
-            logger.info("Closing database connection pool...")
-            try:
-                await self._pool.close()
-                logger.info("Database connection pool closed successfully.")
-            except Exception as e:
-                logger.error(f"Error closing database pool: {e}")
-                raise DatabasePoolError("Failed to close database pool") from e
-            finally:
-                self._pool = None
+        async with self._pool_lock:
+            if self._pool is not None:
+                logger.info("Closing database connection pool...")
+                try:
+                    await self._pool.close()
+                    logger.info("Database connection pool closed successfully.")
+                except Exception as e:
+                    logger.error(f"Error closing database pool: {e}")
+                    raise DatabasePoolError("Failed to close database pool") from e
+                finally:
+                    self._pool = None
+
+    def is_pool_active(self) -> bool:
+        return self._pool is not None and not self._pool.closed
+
+    async def check_pool_health(self) -> bool:
+        try:
+            pool = await self.get_pool()
+            async with pool.connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute("SELECT 1")
+                    result = await cur.fetchone()
+                    return result is not None and result[0] == 1
+        except Exception as e:
+            logger.error(f"Pool health check failed: {e}")
+            return False

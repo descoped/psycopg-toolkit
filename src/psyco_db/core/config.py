@@ -1,6 +1,5 @@
-# src/psyco_db/core/config.py
-
 from dataclasses import dataclass
+from typing import Optional
 
 
 @dataclass
@@ -14,6 +13,8 @@ class DatabaseSettings:
     min_pool_size: int = 5
     max_pool_size: int = 20
     pool_timeout: int = 30
+    connection_timeout: float = 5.0  # seconds
+    statement_timeout: Optional[float] = None
 
     @property
     def connection_string(self) -> str:

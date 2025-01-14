@@ -1,15 +1,14 @@
-from unittest.mock import AsyncMock, Mock
-import pytest
 from contextlib import AbstractAsyncContextManager
+from unittest.mock import AsyncMock
+
+import pytest
 from psycopg.errors import OperationalError
 from psycopg_pool import AsyncConnectionPool
 
 from psyco_db import (
     Database,
     DatabaseSettings,
-    TransactionManager,
-    DatabaseConnectionError,
-    DatabaseNotAvailable
+    TransactionManager
 )
 
 
@@ -75,10 +74,13 @@ async def database(db_settings):
 @pytest.mark.asyncio
 async def test_transaction_manager_exists(database):
     """Test that we can access the transaction manager and it's properly instantiated"""
-    assert database.transaction_manager is not None
-    assert isinstance(database.transaction_manager, TransactionManager)
+    transaction_manager = await database.get_transaction_manager()
+    assert transaction_manager is not None
+    assert isinstance(transaction_manager, TransactionManager)
+
     # Verify it's the same instance when accessed multiple times
-    assert database.transaction_manager is database.transaction_manager
+    second_instance = await database.get_transaction_manager()
+    assert transaction_manager is second_instance
 
 
 @pytest.mark.asyncio
@@ -87,8 +89,9 @@ async def test_successful_transaction(database, mock_pool):
     # Set up database pool
     database._pool = mock_pool
 
+    transaction_manager = await database.get_transaction_manager()
     # Execute a transaction
-    async with database.transaction_manager.transaction() as conn:
+    async with transaction_manager.transaction() as conn:
         # Verify we got a connection
         assert isinstance(conn, MockConnection)
         # Verify transaction was started
@@ -101,9 +104,10 @@ async def test_transaction_rollback_on_error(database, mock_pool):
     # Set up database pool
     database._pool = mock_pool
 
+    transaction_manager = await database.get_transaction_manager()
     # Execute a transaction that will raise an error
     with pytest.raises(ValueError, match="Test error"):
-        async with database.transaction_manager.transaction() as conn:
+        async with transaction_manager.transaction() as conn:
             # Verify we got a connection and transaction was started
             assert isinstance(conn, MockConnection)
             assert hasattr(conn, '_transaction')
@@ -125,7 +129,8 @@ async def test_transaction_connection_error(database, mock_pool):
 
     # Attempt transaction and verify it raises the correct error
     with pytest.raises(OperationalError, match="Connection failed"):
-        async with database.transaction_manager.transaction():
+        tm = await database.get_transaction_manager()
+        async with tm.transaction():
             pytest.fail("Should not reach this point")
 
 
@@ -136,12 +141,13 @@ async def test_nested_transaction(database, mock_pool):
     database._pool = mock_pool
 
     # Execute nested transactions
-    async with database.transaction_manager.transaction() as outer_conn:
+    tm = await database.get_transaction_manager()
+    async with tm.transaction() as outer_conn:
         # Verify outer transaction setup
         assert isinstance(outer_conn, MockConnection)
         assert hasattr(outer_conn, '_transaction')
 
-        async with database.transaction_manager.transaction() as inner_conn:
+        async with tm.transaction() as inner_conn:
             # Verify inner transaction uses same connection
             assert inner_conn is outer_conn
             assert hasattr(inner_conn, '_transaction')

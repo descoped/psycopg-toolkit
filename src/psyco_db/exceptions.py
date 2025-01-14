@@ -1,7 +1,7 @@
-# src/psyco_db/exceptions.py
-
 from typing import Optional
 
+
+# Database exceptions
 
 class PsycoDBException(Exception):
     """Base exception for all psyco-db exceptions."""
@@ -23,4 +23,26 @@ class DatabasePoolError(PsycoDBException):
 
 class DatabaseNotAvailable(PsycoDBException):
     """Raised when database is not available."""
+    pass
+
+
+# Repository exceptions
+
+class RepositoryError(PsycoDBException):
+    """Base exception for repository-related errors."""
+    pass
+
+
+class RecordNotFoundError(RepositoryError):
+    """Raised when a requested record is not found."""
+    pass
+
+
+class InvalidDataError(RepositoryError):
+    """Raised when data validation fails."""
+    pass
+
+
+class OperationError(RepositoryError):
+    """Raised when a repository operation fails."""
     pass
