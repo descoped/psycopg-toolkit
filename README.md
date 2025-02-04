@@ -179,7 +179,7 @@ These guides provide in-depth explanations, examples, and best practices for eac
 
 ## Contributing
 
-Contributions are welcome! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
