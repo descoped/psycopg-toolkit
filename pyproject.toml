@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "psycopg-toolkit"
-version = "0.1.0"
+version = "0.1.1"
 description = "A Python PostgreSQL database utility with connection pooling"
 authors = ["Ove Ranheim <oranheim@gmail.com>"]
 readme = "README.md"
