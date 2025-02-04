@@ -5,7 +5,7 @@ import pytest
 from psycopg.errors import OperationalError
 from psycopg_pool import AsyncConnectionPool
 
-from psyco_db import (
+from psycopg_toolkit import (
     Database,
     DatabaseSettings,
     TransactionManager

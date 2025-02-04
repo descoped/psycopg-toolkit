@@ -1,10 +1,10 @@
 [tool.poetry]
-name = "psyco-db"
+name = "psycopg-toolkit"
 version = "0.1.0"
 description = "A Python PostgreSQL database utility with connection pooling"
 authors = ["Ove Ranheim <oranheim@gmail.com>"]
-readme = "docs/index.rst"
-packages = [{ include = "psyco_db", from = "src" }]
+readme = "README.md"
+packages = [{ include = "psycopg_toolkit", from = "src" }]
 license = "MIT"
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -16,9 +16,9 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Typing :: Typed"
 ]
-homepage = "https://github.com/descoped/psyco-db"
-repository = "https://github.com/descoped/psyco-db"
-documentation = "https://github.com/descoped/psyco-db/tree/master/docs"
+homepage = "https://github.com/descoped/psycopg-toolkit"
+repository = "https://github.com/descoped/psycopg-toolkit"
+documentation = "https://github.com/descoped/psycopg-toolkit/tree/master/docs"
 keywords = ["postgresql", "database", "async", "pool", "psycopg"]
 
 [tool.poetry.dependencies]

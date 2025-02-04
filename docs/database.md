@@ -1,11 +1,11 @@
 # Database Management
 
-The `Database` class is the core component of psyco-db that manages PostgreSQL database connections and provides connection pooling functionality. It handles connection lifecycle, pool management, health checks, and provides a robust interface for database operations.
+The `Database` class is the core component of psycopg-toolkit that manages PostgreSQL database connections and provides connection pooling functionality. It handles connection lifecycle, pool management, health checks, and provides a robust interface for database operations.
 
 ## Quick Start
 
 ```python
-from psyco_db import Database, DatabaseSettings
+from psycopg_toolkit import Database, DatabaseSettings
 
 # Configure settings
 settings = DatabaseSettings(

@@ -8,8 +8,8 @@ from psycopg import AsyncConnection, Cursor
 from psycopg_pool import AsyncConnectionPool
 from pydantic import BaseModel
 
-from psyco_db.exceptions import RecordNotFoundError, OperationError
-from psyco_db.repositories.base import BaseRepository
+from psycopg_toolkit.exceptions import RecordNotFoundError, OperationError
+from psycopg_toolkit.repositories.base import BaseRepository
 
 
 # Test Model

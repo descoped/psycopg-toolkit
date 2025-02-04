@@ -5,7 +5,7 @@ The `PsycopgHelper` class provides utility methods for safe SQL query constructi
 ## Overview
 
 ```python
-from psyco_db.utils import PsycopgHelper
+from psycopg_toolkit.utils import PsycopgHelper
 from psycopg.sql import SQL
 ```
 

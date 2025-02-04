@@ -4,7 +4,7 @@ from typing import Optional
 # Database exceptions
 
 class PsycoDBException(Exception):
-    """Base exception for all psyco-db exceptions."""
+    """Base exception for all psycopg-toolkit exceptions."""
     pass
 
 

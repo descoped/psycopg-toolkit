@@ -5,7 +5,7 @@ from psycopg.errors import OperationalError
 from psycopg_pool import AsyncConnectionPool
 from tenacity import RetryError
 
-from psyco_db import Database, DatabaseSettings, DatabasePoolError
+from psycopg_toolkit import Database, DatabaseSettings, DatabasePoolError
 
 
 @pytest.fixture
@@ -57,7 +57,7 @@ async def test_register_callback(database):
 
 @pytest.mark.asyncio
 async def test_ping_postgres_success(database):
-    with patch('psyco_db.core.database.psycopg.connect') as mock_connect:
+    with patch('psycopg_toolkit.core.database.psycopg.connect') as mock_connect:
         mock_conn = Mock()
         mock_connect.return_value = mock_conn
         assert database.ping_postgres() is True
@@ -66,7 +66,7 @@ async def test_ping_postgres_success(database):
 
 @pytest.mark.asyncio
 async def test_ping_postgres_failure(database):
-    with patch('psyco_db.core.database.psycopg.connect', side_effect=OperationalError("Connection failed")), \
+    with patch('psycopg_toolkit.core.database.psycopg.connect', side_effect=OperationalError("Connection failed")), \
             patch('tenacity.wait.wait_exponential.__call__', return_value=0):
         with pytest.raises(RetryError):
             database.ping_postgres()
@@ -74,14 +74,14 @@ async def test_ping_postgres_failure(database):
 
 @pytest.mark.asyncio
 async def test_create_pool_success(database):
-    with patch('psyco_db.core.database.psycopg.connect') as mock_connect:
+    with patch('psycopg_toolkit.core.database.psycopg.connect') as mock_connect:
         mock_conn = Mock()
         mock_connect.return_value = mock_conn
 
         mock_pool = AsyncMock(spec=AsyncConnectionPool)
         mock_pool.open = AsyncMock()
 
-        with patch('psyco_db.core.database.AsyncConnectionPool', return_value=mock_pool) as mock_pool_class:
+        with patch('psycopg_toolkit.core.database.AsyncConnectionPool', return_value=mock_pool) as mock_pool_class:
             pool = await database.create_pool()
 
             mock_pool_class.assert_called_once_with(
@@ -105,14 +105,14 @@ async def test_get_pool_existing(database, mock_pool):
 
 @pytest.mark.asyncio
 async def test_get_pool_new(database):
-    with patch('psyco_db.core.database.psycopg.connect') as mock_connect:
+    with patch('psycopg_toolkit.core.database.psycopg.connect') as mock_connect:
         mock_conn = Mock()
         mock_connect.return_value = mock_conn
 
         mock_pool = AsyncMock(spec=AsyncConnectionPool)
         mock_pool.open = AsyncMock()
 
-        with patch('psyco_db.core.database.AsyncConnectionPool', return_value=mock_pool) as mock_pool_class:
+        with patch('psycopg_toolkit.core.database.AsyncConnectionPool', return_value=mock_pool) as mock_pool_class:
             pool = await database.get_pool()
 
             mock_pool_class.assert_called_once_with(
@@ -140,7 +140,7 @@ async def test_init_db(database):
     callback_mock = AsyncMock()
     await database.register_init_callback(callback_mock)
 
-    with patch('psyco_db.core.database.psycopg.connect') as mock_connect:
+    with patch('psycopg_toolkit.core.database.psycopg.connect') as mock_connect:
         mock_conn = Mock()
         mock_connect.return_value = mock_conn
 
@@ -154,7 +154,7 @@ async def test_init_db(database):
         mock_pool.connection.return_value = async_cm
         mock_pool.getconn = AsyncMock(return_value=mock_conn)
 
-        with patch('psyco_db.core.database.AsyncConnectionPool', return_value=mock_pool):
+        with patch('psycopg_toolkit.core.database.AsyncConnectionPool', return_value=mock_pool):
             await database.init_db()
             callback_mock.assert_awaited_once_with(mock_pool)
 

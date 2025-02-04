@@ -5,7 +5,7 @@ The `TransactionManager` provides a robust interface for managing database trans
 ## Quick Start
 
 ```python
-from psyco_db import Database, DatabaseSettings
+from psycopg_toolkit import Database, DatabaseSettings
 
 # Initialize database
 db = Database(settings)

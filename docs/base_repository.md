@@ -9,7 +9,7 @@ The repository uses generics to ensure type safety:
 ```python
 from uuid import UUID
 from pydantic import BaseModel
-from psyco_db import BaseRepository
+from psycopg_toolkit import BaseRepository
 
 # Define your data model with Pydantic
 class User(BaseModel):

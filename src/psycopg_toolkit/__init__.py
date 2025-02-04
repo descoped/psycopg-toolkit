@@ -1,4 +1,4 @@
-# src/psyco_db/__init__.py
+# src/psycopg_toolkit/__init__.py
 
 from .core.config import DatabaseSettings
 from .core.database import Database

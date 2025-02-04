@@ -1,206 +1,186 @@
-# psyco-db
+# Psycopg Toolkit
 
-A Python PostgreSQL database utility that provides connection pooling and robust database management capabilities.
+A robust PostgreSQL database toolkit providing enterprise-grade connection pooling and database management capabilities for Python applications.
 
 ## Features
 
-- Asynchronous connection pooling using `psycopg-pool`
-- Automatic retry mechanism for database connections
-- Connection pool management with customizable settings
-- Initialization callbacks support
-- Error handling with custom exceptions
+- Async-first design with connection pooling via `psycopg-pool`
+- Smart connection management with automatic retries and exponential backoff
+- Configurable pool settings with runtime optimization
+- Type-safe with full typing support
+- Comprehensive error handling and custom exceptions
+- Database health monitoring
+- Initialization callback system for startup operations
 
 ## Installation
 
-### From PyPI
-
 ```bash
-pip install pysco-db
+pip install psycopg-toolkit
 ```
 
-### From TestPyPI
+## Quick Start
 
-```bash
-pip install --index-url https://test.pypi.org/simple/ pysco-db
-```
-
-### Installing from Wheel File
-
-If you have a wheel file (`.whl`), you can install it directly using pip:
-
-```bash
-pip install path/to/pysco_db-0.1.0-py3-none-any.whl
-```
-
-Or add it as a dependency in your project's `pyproject.toml`:
-
-```toml
-[tool.poetry.dependencies]
-pysco-db = { path = "path/to/pysco_db-0.1.0-py3-none-any.whl" }
-```
-
-Then run `poetry install` to install it.
-
-### Local Development Installation
-
-1. Clone the repository
-2. Install Poetry if you haven't already:
-   ```bash
-   curl -sSL https://install.python-poetry.org | python3 -
-   ```
-3. Install dependencies:
-   ```bash
-   poetry install
-   ```
-
-## Publishing
-
-### To TestPyPI
-
-1. Configure TestPyPI repository:
-   ```bash
-   poetry config repositories.testpypi https://test.pypi.org/simple/
-   ```
-
-2. Set your TestPyPI API token:
-   ```bash
-   poetry config pypi-token.testpypi YOUR_TESTPYPI_TOKEN
-   ```
-
-3. Build and publish to TestPyPI:
-   ```bash
-   poetry publish -r testpypi --build
-   ```
-
-### To Production PyPI
-
-1. Set your PyPI API token:
-   ```bash
-   poetry config pypi-token.pypi YOUR_PYPI_TOKEN
-   ```
-
-2. Build and publish to PyPI:
-   ```bash
-   poetry publish --build
-   ```
-
-## Usage
-
-### Basic Setup
+Here's a simple example of connecting to PostgreSQL:
 
 ```python
-from psyco_db import Database, DatabaseSettings
+from psycopg_toolkit import Database, DatabaseSettings
 
-# Configure database settings
+# Configure database
+settings = DatabaseSettings(
+    host="localhost",
+    port=5432,
+    dbname="your_database",
+    user="your_user",
+    password="your_password"
+)
+
+async def main():
+    # Initialize database with connection pool
+    db = Database(settings)
+    await db.init_db()
+    
+    # Execute queries
+    async with db.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT * FROM users")
+            users = await cur.fetchall()
+    
+    # Clean up connections
+    await db.cleanup()
+```
+
+## Architecture
+
+The toolkit manages database connections through a layered architecture:
+
+1. Connection Pool Layer - Handles connection lifecycle and pooling
+2. Transaction Layer - Manages database transactions and retries
+3. Error Management Layer - Provides custom exceptions and error handling
+4. Health Check Layer - Monitors database availability
+
+## Key Components
+
+### Database Settings
+
+Configure your database connection:
+
+```python
 settings = DatabaseSettings(
     host="localhost",
     port=5432,
     dbname="your_database",
     user="your_user",
     password="your_password",
-    min_pool_size=5,    # Optional (default: 5)
-    max_pool_size=20,   # Optional (default: 20)
-    pool_timeout=30     # Optional (default: 30)
+    min_pool_size=5,    # Optional
+    max_pool_size=20,   # Optional
+    pool_timeout=30     # Optional
 )
-
-# Create database instance
-db = Database(settings)
 ```
 
-### Initialization and Cleanup
+### Connection Management
+
+The `Database` class provides connection handling:
 
 ```python
-async def main():
-    # Initialize the database pool
-    await db.init_db()
-    
-    # ... your application code ...
-    
-    # Cleanup when shutting down
-    await db.cleanup()
+# Connection context manager
+async with db.connection() as conn:
+    # Your database operations here
+    pass  # Connection automatically returned to pool
+
+# Manual connection acquisition
+conn = await db.acquire()
+try:
+    # Your operations
+    pass
+finally:
+    await db.release(conn)
 ```
 
-### Using Database Connections
+### Initialization Callbacks
+
+Register startup operations:
 
 ```python
-async def example_query():
-    async with db.connection() as conn:
-        # Execute a query
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT * FROM your_table")
-            results = await cur.fetchall()
-            return results
-```
-
-### Registration Callbacks
-
-You can register initialization callbacks that will be executed after the pool is created:
-
-```python
-async def init_callback(pool):
+async def init_tables(pool):
     async with pool.connection() as conn:
         async with conn.cursor() as cur:
-            await cur.execute("CREATE TABLE IF NOT EXISTS ...")
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    name TEXT NOT NULL
+                )
+            """)
 
-# Register the callback
-db.register_init_callback(init_callback)
+db.register_init_callback(init_tables)
 ```
 
 ### Error Handling
 
-The library provides custom exceptions for different scenarios:
+Comprehensive exception hierarchy:
 
 ```python
-from psyco_db import (
-    PsycoDBException,
-    DatabaseConnectionError,
-    DatabasePoolError,
-    DatabaseNotAvailable
-)
+try:
+    async with db.connection() as conn:
+        # Database operations
+        pass
+except DatabaseConnectionError as e:
+    # Handle connection failures
+except DatabasePoolError as e:
+    # Handle pool exhaustion
+except DatabaseNotAvailable as e:
+    # Handle database unavailability
+except PsycoDBException as e:
+    # Handle general database errors
+```
 
-async def example_with_error_handling():
-    try:
-        async with db.connection() as conn:
-            # Your database operations
-            pass
-    except DatabaseConnectionError as e:
-        print(f"Connection error: {e}")
-    except DatabasePoolError as e:
-        print(f"Pool error: {e}")
-    except DatabaseNotAvailable as e:
-        print(f"Database not available: {e}")
-    except PsycoDBException as e:
-        print(f"General database error: {e}")
+## Advanced Usage
+
+### Health Monitoring
+
+```python
+# Check database availability
+is_healthy = await db.ping_postgres()
+
+# Get pool statistics
+stats = await db.get_pool_stats()
+print(f"Active connections: {stats.active_connections}")
 ```
 
 ### Connection Pool Management
 
-The library automatically manages the connection pool:
-
-- Retries connection attempts with exponential backoff
-- Maintains minimum and maximum pool sizes
-- Handles connection timeouts
-- Automatically closes connections when they're no longer needed
-
-### Database Health Check
-
 ```python
-# Check if database is reachable
-try:
-    is_available = db.ping_postgres()
-    print(f"Database is available: {is_available}")
-except DatabaseConnectionError as e:
-    print(f"Database is not available: {e}")
+# Configure pool behavior
+db = Database(
+    settings,
+    retry_attempts=3,
+    backoff_factor=2.0,
+    max_retry_delay=30.0
+)
 ```
 
-## Development
+## Best Practices
 
-### Running Tests
+1. Always use async context managers for connection handling
+2. Configure appropriate pool sizes for your workload
+3. Implement proper error handling using provided exceptions
+4. Use health checks in production environments
+5. Clean up resources during application shutdown
 
-```bash
-poetry run pytest
-```
+## Documentation
+
+Detailed documentation for each component is available in the `docs/` directory:
+
+- [Database Management](docs/database.md)
+- [Transaction Management](docs/transaction_manager.md)
+- [Base Repository](docs/base_repository.md)
+- [PsycopgHelper](docs/psycopg_helper.md)
+
+These guides provide in-depth explanations, examples, and best practices for each feature.
+
+## Contributing
+
+Contributions are welcome! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
 
 ## License
 
-This project is licensed under the MIT License.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
