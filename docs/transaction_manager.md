@@ -1,6 +1,6 @@
 # Transaction Management
 
-The `TransactionManager` provides a robust interface for managing database transactions in psyco-db. It handles transaction lifecycle, automatic rollback on errors, and proper resource cleanup.
+The `TransactionManager` provides a robust interface for managing database transactions in psycopg-toolkit. It handles transaction lifecycle, automatic rollback on errors, and proper resource cleanup.
 
 ## Quick Start
 
