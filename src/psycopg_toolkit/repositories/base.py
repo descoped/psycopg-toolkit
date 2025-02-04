@@ -1,5 +1,3 @@
-# base.py
-
 """
 Generic base repository module for database operations.
 

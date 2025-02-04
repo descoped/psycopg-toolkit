@@ -1,5 +1,3 @@
-# src/psycopg_toolkit/__init__.py
-
 from .core.config import DatabaseSettings
 from .core.database import Database
 from .core.transaction import TransactionManager
