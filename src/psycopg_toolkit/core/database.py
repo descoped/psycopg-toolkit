@@ -20,25 +20,39 @@ class Database:
     """
 
     def __init__(self, settings: DatabaseSettings):
+        """
+        Initialize Database instance with settings.
+
+        Args:
+            settings: Database connection settings
+
+        Raises:
+            ValueError: If settings are invalid
+        """
+        # Validate settings
+        if not settings.host or not settings.dbname or not settings.user:
+            raise ValueError("Invalid database settings: host, dbname, and user are required")
+
         self._pool: Optional[AsyncConnectionPool] = None
         self._settings = settings
         self._init_callbacks: List[Callable[[AsyncConnectionPool], Awaitable[None]]] = []
         self._transaction_manager: Optional[TransactionManager] = None
-        self._pool_lock = Lock()  # Add thread lock
-        self._callbacks_lock = Lock()  # Separate lock for callbacks
+        self._pool_lock = Lock()
+        self._callbacks_lock = Lock()
         self._transaction_manager_lock = Lock()
 
     async def get_transaction_manager(self) -> TransactionManager:
         """
-        Get the transaction manager instance.
+        Get the transaction manager instance, creating it if necessary.
 
         Returns:
             TransactionManager: Instance for managing database transactions
         """
-        async with self._transaction_manager_lock:
-            if self._transaction_manager is None:
-                self._transaction_manager = TransactionManager(self)
-            return self._transaction_manager
+        if self._transaction_manager is None:
+            async with self._transaction_manager_lock:
+                if self._transaction_manager is None:
+                    self._transaction_manager = TransactionManager(self)
+        return self._transaction_manager
 
     async def register_init_callback(self, callback: Callable[[AsyncConnectionPool], Awaitable[None]]) -> None:
         """
@@ -58,6 +72,9 @@ class Database:
         """
         Ping the PostgreSQL database to check if it's up and reachable.
 
+        Returns:
+            bool: True if connection successful
+
         Raises:
             DatabaseConnectionError: If connection fails
         """
@@ -66,24 +83,32 @@ class Database:
                         f"dbname: {self._settings.dbname}, "
                         f"user: {self._settings.user}")
 
-            conn = psycopg.connect(self._settings.connection_string)
+            conn = psycopg.connect(
+                self._settings.get_connection_string(self._settings.connection_timeout)
+            )
             conn.close()
             logger.info("Successfully connected to PostgreSQL.")
             return True
         except Exception as e:
             error_msg = f"Could not connect to PostgreSQL"
             logger.error(f"Error: {error_msg}. Details: {e}")
-            raise DatabaseConnectionError(error_msg, original_error=e)
+            raise DatabaseConnectionError(error_msg) from e
 
-    async def create_pool(self) -> Optional[AsyncConnectionPool]:
+    async def create_pool(self) -> AsyncConnectionPool:
         """
         Create a database connection pool if PostgreSQL is reachable.
 
+        Returns:
+            AsyncConnectionPool: Initialized connection pool
+
         Raises:
+            DatabaseConnectionError: If database connection fails
             DatabasePoolError: If pool creation fails
         """
         try:
-            self.ping_postgres()
+            if not self.ping_postgres():
+                raise DatabaseConnectionError("Failed to ping database")
+
             logger.info("Initializing connection pool to PostgreSQL.")
 
             pool = AsyncConnectionPool(
@@ -93,64 +118,93 @@ class Database:
                 timeout=self._settings.pool_timeout,
                 open=False
             )
-            await pool.open()
-            self._pool = pool
+
+            try:
+                await pool.open()
+                self._pool = pool
+            except Exception as e:
+                await pool.close()
+                raise DatabasePoolError("Failed to open pool") from e
+
             return pool
+        except DatabaseConnectionError:
+            raise
         except Exception as e:
             error_msg = "Could not create connection pool to PostgreSQL"
             logger.error(f"Error: {error_msg}. Details: {e}")
-            raise DatabasePoolError(error_msg)
+            raise DatabasePoolError(error_msg) from e
 
     async def get_pool(self) -> AsyncConnectionPool:
         """
         Get existing pool or create new one if none exists.
 
+        Returns:
+            AsyncConnectionPool: Database connection pool
+
         Raises:
             DatabaseNotAvailable: If database is not available
         """
-
-        if self._pool is not None:
-            return self._pool
-
-        async with self._pool_lock:
-            if self._pool is not None:
-                return self._pool
-
-            try:
-                self._pool = await self.create_pool()
-            except Exception as e:
-                raise DatabaseNotAvailable("Database is not available") from e
-            return self._pool
+        if not self._pool or self._pool.closed:
+            async with self._pool_lock:
+                if not self._pool or self._pool.closed:
+                    try:
+                        self._pool = await self.create_pool()
+                    except Exception as e:
+                        raise DatabaseNotAvailable("Database is not available") from e
+        return self._pool
 
     @asynccontextmanager
     async def connection(self) -> AsyncGenerator[AsyncConnectionPool, None]:
         """
         Get a database connection from the pool.
+
+        Yields:
+            AsyncConnectionPool: Database connection from the pool
+
+        Raises:
+            DatabaseNotAvailable: If database is not available
         """
         pool = await self.get_pool()
         async with pool.connection() as conn:
+            if self._settings.statement_timeout:
+                await conn.execute(f"SET statement_timeout = {int(self._settings.statement_timeout * 1000)}")
             yield conn
 
     async def init_db(self) -> None:
         """
         Initialize the database pool and execute registered callbacks.
+
+        Raises:
+            DatabaseNotAvailable: If database is not available
+            DatabaseConnectionError: If connection fails
+            DatabasePoolError: If pool operations fail
         """
         try:
             pool = await self.get_pool()
-            async with pool.connection():
+            async with pool.connection() as _:
                 logger.info("Database pool initialized successfully.")
 
-                # Execute registered initialization callbacks
-                for callback in self._init_callbacks:
-                    await callback(pool)
+                # Execute registered initialization callbacks with proper error handling
+                async with self._callbacks_lock:
+                    for callback in self._init_callbacks:
+                        try:
+                            await callback(pool)
+                        except Exception as e:
+                            logger.error(f"Callback failed: {e}")
+                            await self.cleanup()
+                            raise
 
         except Exception as e:
             logger.error(f"Failed to initialize database: {e}")
+            await self.cleanup()
             raise
 
     async def cleanup(self) -> None:
         """
         Cleanup database resources on shutdown.
+
+        Raises:
+            DatabasePoolError: If cleanup fails
         """
         async with self._pool_lock:
             if self._pool is not None:
@@ -163,11 +217,19 @@ class Database:
                     raise DatabasePoolError("Failed to close database pool") from e
                 finally:
                     self._pool = None
+                    self._transaction_manager = None
 
     def is_pool_active(self) -> bool:
+        """Check if pool exists and is not closed."""
         return self._pool is not None and not self._pool.closed
 
     async def check_pool_health(self) -> bool:
+        """
+        Perform a health check on the connection pool.
+
+        Returns:
+            bool: True if pool is healthy
+        """
         try:
             pool = await self.get_pool()
             async with pool.connection() as conn:

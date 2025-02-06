@@ -61,7 +61,9 @@ async def test_ping_postgres_success(database):
         mock_conn = Mock()
         mock_connect.return_value = mock_conn
         assert database.ping_postgres() is True
-        mock_connect.assert_called_once_with(database._settings.connection_string)
+        mock_connect.assert_called_once_with(
+            'host=localhost port=5432 dbname=test_db user=test_user password=test_pass connect_timeout=5'
+        )
 
 
 @pytest.mark.asyncio
@@ -99,6 +101,7 @@ async def test_create_pool_success(database):
 @pytest.mark.asyncio
 async def test_get_pool_existing(database, mock_pool):
     database._pool = mock_pool
+    mock_pool.closed = False
     pool = await database.get_pool()
     assert pool == mock_pool
 
@@ -130,6 +133,7 @@ async def test_get_pool_new(database):
 @pytest.mark.asyncio
 async def test_connection_manager(database, mock_pool):
     database._pool = mock_pool
+    mock_pool.closed = False
     async with database.connection() as conn:
         assert conn == mock_pool.connection.return_value.__aenter__.return_value
     mock_pool.connection.assert_called_once()

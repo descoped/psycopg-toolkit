@@ -88,6 +88,7 @@ async def test_successful_transaction(database, mock_pool):
     """Test successful transaction flow"""
     # Set up database pool
     database._pool = mock_pool
+    mock_pool.closed = False
 
     transaction_manager = await database.get_transaction_manager()
     # Execute a transaction
@@ -103,6 +104,7 @@ async def test_transaction_rollback_on_error(database, mock_pool):
     """Test that transaction is rolled back when an exception occurs"""
     # Set up database pool
     database._pool = mock_pool
+    mock_pool.closed = False
 
     transaction_manager = await database.get_transaction_manager()
     # Execute a transaction that will raise an error
@@ -126,6 +128,7 @@ async def test_transaction_connection_error(database, mock_pool):
 
     # Set up database pool
     database._pool = mock_pool
+    mock_pool.closed = False
 
     # Attempt transaction and verify it raises the correct error
     with pytest.raises(OperationalError, match="Connection failed"):
@@ -139,6 +142,7 @@ async def test_nested_transaction(database, mock_pool):
     """Test that nested transactions work correctly and reuse the same connection"""
     # Set up database pool
     database._pool = mock_pool
+    mock_pool.closed = False
 
     # Execute nested transactions
     tm = await database.get_transaction_manager()
