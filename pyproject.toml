@@ -1,9 +1,9 @@
 [tool.poetry]
 name = "psycopg-toolkit"
-version = "0.1.1"
+version = "0.1.4"
 description = "A Python PostgreSQL database utility with connection pooling"
 authors = ["Ove Ranheim <oranheim@gmail.com>"]
-readme = "README.md"
+readme = "docs/readme.md"
 packages = [{ include = "psycopg_toolkit", from = "src" }]
 license = "MIT"
 classifiers = [
@@ -47,3 +47,6 @@ asyncio_default_fixture_loop_scope = "function"
 markers = [
     "asyncio: mark test as async",
 ]
+
+[tool.poetry.scripts]
+fix-readme = "scripts.fix_readme:main"
