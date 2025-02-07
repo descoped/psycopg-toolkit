@@ -1,37 +1,41 @@
 """Basic usage example of PsycoDB."""
 import asyncio
 
+from testcontainers.postgres import PostgresContainer
+
 from psycopg_toolkit import Database, DatabaseSettings
 
 
 async def main():
-    # Initialize database settings
-    settings = DatabaseSettings(
-        host="localhost",
-        port=5432,
-        dbname="example",
-        user="user",
-        password="password"
-    )
+    # Initialize postgres container
+    with PostgresContainer("postgres:17") as container:
+        settings = DatabaseSettings(
+            host=container.get_container_host_ip(),
+            port=container.get_exposed_port(5432),
+            dbname=container.dbname,
+            user=container.username,
+            password=container.password,
+        )
 
-    # Create database instance
-    db = Database(settings)
+        # Create database instance
+        db = Database(settings)
 
-    try:
-        # Initialize the database pool
-        await db.init_db()
+        try:
+            # Initialize the database pool
+            await db.init_db()
 
-        # Use a connection from the pool
-        async with db.connection() as conn:
-            # Execute a simple query
-            async with conn.cursor() as cur:
-                await cur.execute("SELECT version();")
-                version = await cur.fetchone()
-                print(f"PostgreSQL version: {version[0]}")
+            # Use a connection from the pool
+            async with db.connection() as conn:
+                # Execute a simple query
+                async with conn.cursor() as cur:
+                    await cur.execute("SELECT version();")
+                    version = await cur.fetchone()
+                    print(f"PostgreSQL version:\n{version[0]}")
 
-    finally:
-        # Clean up resources
-        await db.cleanup()
+        finally:
+            # Clean up resources
+            await db.cleanup()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
