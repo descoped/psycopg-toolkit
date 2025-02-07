@@ -250,3 +250,68 @@ async def create_users_batch(users: List[User]):
     # Returns list of created User objects
     return created
 ```
+
+## Architecture
+
+### Repository Pattern Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    participant A as Application
+    participant R as Repository
+    participant H as PsycopgHelper
+    participant C as Connection
+    participant M as PydanticModel
+
+    Note over A,M: Create Operation
+
+    A->>+R: create(item)
+    R->>+M: model_dump()
+    M-->>-R: dict_data
+    R->>+H: build_insert_query()
+    H-->>-R: safe_query
+    R->>+C: execute(query)
+    C-->>-R: result
+    R->>+M: model_class(**result)
+    M-->>-R: model
+    R-->>-A: created_item
+
+    Note over A,M: Read Operation
+
+    A->>+R: get_by_id(id)
+    R->>+H: build_select_query()
+    H-->>-R: safe_query
+    R->>+C: execute(query)
+    C-->>-R: result
+    alt Record Found
+        R->>+M: model_class(**result)
+        M-->>-R: model
+        R-->>-A: item
+    else Not Found
+        R-->>A: RecordNotFoundError
+    end
+
+    Note over A,M: Update Operation
+
+    A->>+R: update(id, data)
+    R->>+H: build_update_query()
+    H-->>-R: safe_query
+    R->>+C: execute(query)
+    C-->>-R: result
+    R->>+M: model_class(**result)
+    M-->>-R: model
+    R-->>-A: updated_item
+
+    Note over A,M: Delete Operation
+
+    A->>+R: delete(id)
+    R->>+H: build_delete_query()
+    H-->>-R: safe_query
+    R->>+C: execute(query)
+    C-->>-R: result
+    alt Success
+        R-->>-A: success
+    else Not Found
+        R-->>A: RecordNotFoundError
+    end
+```

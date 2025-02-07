@@ -20,59 +20,119 @@ D = TypeVar('D')  # Data type
 
 
 class SchemaManager(ABC, Generic[T]):
-    """Abstract base class for schema management."""
+    """Abstract base class for database schema management.
+
+    Generic type T represents the schema configuration type.
+    """
 
     @abstractmethod
     async def create_schema(self, conn: AsyncConnection) -> T:
-        """Create database schema."""
+        """Create database schema.
+
+        Args:
+            conn: Database connection
+
+        Returns:
+            T: Schema configuration
+        """
         pass
 
     @abstractmethod
     async def drop_schema(self, conn: AsyncConnection) -> None:
-        """Drop database schema."""
+        """Drop database schema.
+
+        Args:
+            conn: Database connection
+        """
         pass
 
 
 class DataManager(ABC, Generic[D]):
-    """Abstract base class for test data management."""
+    """Abstract base class for test data management.
+
+    Generic type D represents the test data type.
+    """
 
     @abstractmethod
     async def setup_data(self, conn: AsyncConnection) -> D:
-        """Set up test data."""
+        """Set up test data in database.
+
+        Args:
+            conn: Database connection
+
+        Returns:
+            D: Test data configuration
+        """
         pass
 
     @abstractmethod
     async def cleanup_data(self, conn: AsyncConnection) -> None:
-        """Clean up test data."""
+        """Clean up test data from database.
+
+        Args:
+            conn: Database connection
+        """
         pass
 
 
 @dataclass
 class TransactionContext:
-    """Transaction context with savepoint support"""
+    """Transaction context with savepoint support.
+
+    Attributes:
+        conn: Database connection
+        savepoint_name: Optional savepoint identifier
+    """
     conn: AsyncConnection
     savepoint_name: Optional[str] = None
 
     async def __aenter__(self):
+        """Enter transaction context, creating savepoint if specified.
+
+        Returns:
+            AsyncConnection: Database connection
+        """
         if self.savepoint_name:
             await self.conn.execute(f"SAVEPOINT {self.savepoint_name}")
         return self.conn
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Exit transaction context, rolling back to savepoint on error."""
         if exc_type and self.savepoint_name:
             await self.conn.execute(f"ROLLBACK TO SAVEPOINT {self.savepoint_name}")
 
 
 class TransactionManager:
-    """Manages database transactions with schema and data management support."""
+    """Manages database transactions with schema and data management support.
+
+    Provides context managers for transaction handling, schema operations,
+    and test data management.
+
+    Attributes:
+        pool: Connection pool for database access
+    """
 
     def __init__(self, pool: AsyncConnectionPool):
-        """Initialize with connection pool."""
+        """Initialize with connection pool.
+
+        Args:
+            pool: AsyncConnectionPool instance
+        """
         self.pool = pool
 
     @asynccontextmanager
     async def transaction(self, savepoint: Optional[str] = None) -> AsyncGenerator[AsyncConnection, None]:
-        """Context manager for database transactions with optional savepoint."""
+        """Context manager for database transactions with optional savepoint.
+
+        Args:
+            savepoint: Optional savepoint name
+
+        Yields:
+            AsyncConnection: Database connection
+
+        Raises:
+            DatabaseConnectionError: On transaction or connection failure
+        """
         try:
             async with self.pool.connection() as conn:
                 async with conn.transaction():
@@ -89,7 +149,17 @@ class TransactionManager:
 
     @asynccontextmanager
     async def with_schema(self, schema_manager: SchemaManager[T]) -> AsyncGenerator[T, None]:
-        """Context manager for schema operations."""
+        """Context manager for schema operations.
+
+        Args:
+            schema_manager: Schema manager implementation
+
+        Yields:
+            T: Schema configuration
+
+        Raises:
+            DatabaseConnectionError: On schema operation failure
+        """
         async with self.transaction() as conn:
             try:
                 schema = await schema_manager.create_schema(conn)
@@ -104,7 +174,14 @@ class TransactionManager:
 
     @asynccontextmanager
     async def with_test_data(self, data_manager: DataManager[D]) -> AsyncGenerator[D, None]:
-        """Context manager for test data operations."""
+        """Context manager for test data operations.
+
+        Args:
+            data_manager: Test data manager implementation
+
+        Yields:
+            D: Test data configuration
+        """
         async with self.transaction() as conn:
             try:
                 data = await data_manager.setup_data(conn)
@@ -122,7 +199,15 @@ class TransactionManager:
             schema_manager: Optional[SchemaManager[T]] = None,
             data_manager: Optional[DataManager[D]] = None
     ) -> AsyncGenerator[AsyncConnection, None]:
-        """Combined context manager for schema and data operations."""
+        """Combined context manager for schema and data operations.
+
+        Args:
+            schema_manager: Optional schema manager implementation
+            data_manager: Optional test data manager implementation
+
+        Yields:
+            AsyncConnection: Database connection
+        """
         if schema_manager:
             async with self.with_schema(schema_manager):
                 if data_manager:

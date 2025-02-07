@@ -5,12 +5,16 @@ A robust PostgreSQL database toolkit providing enterprise-grade connection pooli
 ## Features
 
 - Async-first design with connection pooling via `psycopg-pool`
-- Smart connection management with automatic retries and exponential backoff
-- Configurable pool settings with runtime optimization
-- Type-safe with full typing support
-- Comprehensive error handling and custom exceptions
-- Database health monitoring
-- Initialization callback system for startup operations
+- Comprehensive transaction management with savepoint support
+- Type-safe repository pattern with Pydantic model validation
+- SQL query builder with SQL injection protection
+- Database schema and test data lifecycle management
+- Automatic retry mechanism with exponential backoff
+- Granular exception hierarchy for error handling
+- Connection health monitoring and validation
+- Database initialization callback system
+- Statement timeout configuration
+- Fully typed with modern Python type hints
 
 ## Installation
 
@@ -20,10 +24,9 @@ pip install psycopg-toolkit
 
 ## Quick Start
 
-Here's a simple example of connecting to PostgreSQL:
-
 ```python
 from psycopg_toolkit import Database, DatabaseSettings
+from uuid import uuid4
 
 # Configure database
 settings = DatabaseSettings(
@@ -35,152 +38,147 @@ settings = DatabaseSettings(
 )
 
 async def main():
-    # Initialize database with connection pool
+    # Initialize database
     db = Database(settings)
     await db.init_db()
     
-    # Execute queries
-    async with db.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT * FROM users")
-            users = await cur.fetchall()
+    # Get transaction manager
+    tm = await db.get_transaction_manager()
     
-    # Clean up connections
+    # Execute in transaction
+    async with tm.transaction() as conn:
+        async with conn.cursor() as cur:
+            user_id = uuid4()
+            await cur.execute(
+                "INSERT INTO users (id, email) VALUES (%s, %s)",
+                (user_id, "user@example.com")
+            )
+    
+    # Clean up
     await db.cleanup()
 ```
 
-## Architecture
+## Core Components
 
-The toolkit manages database connections through a layered architecture:
-
-1. Connection Pool Layer - Handles connection lifecycle and pooling
-2. Transaction Layer - Manages database transactions and retries
-3. Error Management Layer - Provides custom exceptions and error handling
-4. Health Check Layer - Monitors database availability
-
-## Key Components
-
-### Database Settings
-
-Configure your database connection:
+### Database Management
 
 ```python
-settings = DatabaseSettings(
-    host="localhost",
-    port=5432,
-    dbname="your_database",
-    user="your_user",
-    password="your_password",
-    min_pool_size=5,    # Optional
-    max_pool_size=20,   # Optional
-    pool_timeout=30     # Optional
-)
-```
+# Health check
+is_healthy = await db.check_pool_health()
 
-### Connection Management
-
-The `Database` class provides connection handling:
-
-```python
-# Connection context manager
+# Connection management
 async with db.connection() as conn:
-    # Your database operations here
-    pass  # Connection automatically returned to pool
+    async with conn.cursor() as cur:
+        await cur.execute("SELECT version()")
+```
 
-# Manual connection acquisition
-conn = await db.acquire()
-try:
-    # Your operations
+### Transaction Management
+
+```python
+# Basic transaction
+async with tm.transaction() as conn:
+    # Operations automatically rolled back on error
     pass
-finally:
-    await db.release(conn)
+
+# With savepoint
+async with tm.transaction(savepoint="user_creation") as conn:
+    # Nested transaction using savepoint
+    pass
 ```
 
-### Initialization Callbacks
-
-Register startup operations:
+### Repository Pattern
 
 ```python
-async def init_tables(pool):
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id SERIAL PRIMARY KEY,
-                    name TEXT NOT NULL
-                )
-            """)
+from pydantic import BaseModel
+from psycopg_toolkit import BaseRepository
 
-db.register_init_callback(init_tables)
+class User(BaseModel):
+    id: UUID
+    email: str
+
+class UserRepository(BaseRepository[User]):
+    def __init__(self, conn: AsyncConnection):
+        super().__init__(
+            db_connection=conn,
+            table_name="users",
+            model_class=User,
+            primary_key="id"
+        )
+
+# Usage
+async with tm.transaction() as conn:
+    repo = UserRepository(conn)
+    user = await repo.get_by_id(user_id)
 ```
 
-### Error Handling
-
-Comprehensive exception hierarchy:
+### Schema Management
 
 ```python
-try:
-    async with db.connection() as conn:
-        # Database operations
-        pass
-except DatabaseConnectionError as e:
-    # Handle connection failures
-except DatabasePoolError as e:
-    # Handle pool exhaustion
-except DatabaseNotAvailable as e:
-    # Handle database unavailability
-except PsycoDBException as e:
-    # Handle general database errors
+from psycopg_toolkit.core.transaction import SchemaManager
+
+class UserSchemaManager(SchemaManager[None]):
+    async def create_schema(self, conn: AsyncConnection) -> None:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id UUID PRIMARY KEY,
+                email TEXT UNIQUE NOT NULL
+            )
+        """)
+
+    async def drop_schema(self, conn: AsyncConnection) -> None:
+        await conn.execute("DROP TABLE IF EXISTS users")
+
+# Usage
+async with tm.with_schema(UserSchemaManager()) as _:
+    # Schema available here
+    pass  # Automatically dropped after
 ```
 
-## Advanced Usage
-
-### Health Monitoring
+## Error Handling
 
 ```python
-# Check database availability
-is_healthy = await db.ping_postgres()
-
-# Get pool statistics
-stats = await db.get_pool_stats()
-print(f"Active connections: {stats.active_connections}")
-```
-
-### Connection Pool Management
-
-```python
-# Configure pool behavior
-db = Database(
-    settings,
-    retry_attempts=3,
-    backoff_factor=2.0,
-    max_retry_delay=30.0
+from psycopg_toolkit import (
+    DatabaseConnectionError,
+    DatabasePoolError,
+    DatabaseNotAvailable,
+    RecordNotFoundError
 )
+
+try:
+    async with tm.transaction() as conn:
+        repo = UserRepository(conn)
+        user = await repo.get_by_id(user_id)
+except DatabaseConnectionError as e:
+    print(f"Connection error: {e.original_error}")
+except RecordNotFoundError:
+    print(f"User {user_id} not found")
 ```
-
-## Best Practices
-
-1. Always use async context managers for connection handling
-2. Configure appropriate pool sizes for your workload
-3. Implement proper error handling using provided exceptions
-4. Use health checks in production environments
-5. Clean up resources during application shutdown
 
 ## Documentation
-
-Detailed documentation for each component is available in the `docs/` directory:
 
 - [Database Management](docs/database.md)
 - [Transaction Management](docs/transaction_manager.md)
 - [Base Repository](docs/base_repository.md)
 - [PsycopgHelper](docs/psycopg_helper.md)
 
-These guides provide in-depth explanations, examples, and best practices for each feature.
+## Running Tests
+
+```bash
+# Install test dependencies
+poetry install --with test
+
+# Run tests
+poetry run pytest
+```
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new features
+4. Ensure all tests pass
+5. Submit a pull request
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](https://github.com/descoped/psycopg-toolkit/blob/master/LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

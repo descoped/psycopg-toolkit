@@ -18,10 +18,28 @@ logger = logging.getLogger(__name__)
 
 
 class Database:
-    """Database management class with connection pooling and callbacks."""
+    """PostgreSQL database manager with connection pooling and transaction support.
+
+    Manages database connections, connection pools, and transactions using psycopg3.
+    Implements connection retry logic and health checks. Supports initialization callbacks
+    and statement timeout configuration.
+
+    Attributes:
+        _settings (DatabaseSettings): Connection and pool configuration
+        _pool (Optional[AsyncConnectionPool]): Connection pool instance
+        _init_callbacks (List[Callable]): Initialization callback functions
+        _transaction_manager (Optional[TransactionManager]): Transaction manager instance
+    """
 
     def __init__(self, settings: DatabaseSettings):
-        """Initialize Database with settings."""
+        """Initialize database manager with settings.
+
+        Args:
+            settings: Database connection and pool configuration
+
+        Raises:
+            ValueError: If required settings are missing
+        """
         if not settings.host or not settings.dbname or not settings.user:
             raise ValueError("Invalid database settings: host, dbname, and user are required")
 
@@ -35,7 +53,14 @@ class Database:
         wait=wait_exponential(multiplier=1, min=4, max=10)
     )
     def ping_postgres(self) -> bool:
-        """Check database connectivity."""
+        """Test database connectivity with exponential backoff retry.
+
+        Returns:
+            bool: True if connection successful
+
+        Raises:
+            DatabaseConnectionError: If connection fails after retries
+        """
         try:
             logger.info(f"Pinging PostgreSQL at {self._settings.host}")
             conn = psycopg.connect(self._settings.get_connection_string(self._settings.connection_timeout))
@@ -47,7 +72,15 @@ class Database:
             raise DatabaseConnectionError("Failed to connect to database", e)
 
     async def create_pool(self) -> AsyncConnectionPool:
-        """Create and initialize connection pool."""
+        """Create and initialize connection pool.
+
+        Returns:
+            AsyncConnectionPool: Configured connection pool
+
+        Raises:
+            DatabaseConnectionError: If database ping fails
+            DatabasePoolError: If pool creation or initialization fails
+        """
         try:
             if not self.ping_postgres():
                 raise DatabaseConnectionError("Failed to ping database")
@@ -74,7 +107,14 @@ class Database:
             raise DatabasePoolError("Failed to create pool") from e
 
     async def get_pool(self) -> AsyncConnectionPool:
-        """Get or create connection pool."""
+        """Get existing pool or create new one.
+
+        Returns:
+            AsyncConnectionPool: Active connection pool
+
+        Raises:
+            DatabaseNotAvailable: If pool creation fails
+        """
         if not self._pool or self._pool.closed:
             self._pool = await self.create_pool()
             if not self._pool:
@@ -85,12 +125,23 @@ class Database:
             self,
             callback: Callable[[AsyncConnectionPool], Awaitable[None]]
     ) -> None:
-        """Register initialization callback."""
+        """Register callback to run during database initialization.
+
+        Args:
+            callback: Async function taking pool as argument
+        """
         self._init_callbacks.append(callback)
 
     @asynccontextmanager
     async def connection(self) -> AsyncGenerator[AsyncConnection, None]:
-        """Get database connection with optional statement timeout."""
+        """Get database connection with configured statement timeout.
+
+        Yields:
+            AsyncConnection: Database connection
+
+        Raises:
+            DatabaseConnectionError: If connection acquisition fails
+        """
         pool = await self.get_pool()
         async with pool.connection() as conn:
             if self._settings.statement_timeout:
@@ -100,7 +151,11 @@ class Database:
             yield conn
 
     async def init_db(self) -> None:
-        """Initialize database and execute callbacks."""
+        """Initialize database and run registered callbacks.
+
+        Raises:
+            DatabaseConnectionError: If initialization or callbacks fail
+        """
         try:
             pool = await self.get_pool()
             async with pool.connection() as _:
@@ -120,7 +175,11 @@ class Database:
             raise
 
     async def cleanup(self) -> None:
-        """Cleanup database resources."""
+        """Clean up database resources and close pool.
+
+        Raises:
+            DatabasePoolError: If pool closure fails
+        """
         if self._pool:
             logger.info("Closing database pool")
             try:
@@ -134,7 +193,11 @@ class Database:
                 self._transaction_manager = None
 
     async def check_pool_health(self) -> bool:
-        """Check connection pool health."""
+        """Check connection pool health by executing test query.
+
+        Returns:
+            bool: True if pool is healthy
+        """
         try:
             pool = await self.get_pool()
             async with pool.connection() as conn:
@@ -147,11 +210,19 @@ class Database:
             return False
 
     def is_pool_active(self) -> bool:
-        """Check if pool exists and is active."""
+        """Check if pool exists and is not closed.
+
+        Returns:
+            bool: True if pool is active
+        """
         return self._pool is not None and not self._pool.closed
 
-    async def get_transaction_manager(self) -> Any:  # Type hint will be fixed after TransactionManager implementation
-        """Get or create transaction manager."""
+    async def get_transaction_manager(self) -> Any:
+        """Get existing transaction manager or create new one.
+
+        Returns:
+            TransactionManager: Active transaction manager
+        """
         if not self._transaction_manager:
             from .transaction import TransactionManager
             pool = await self.get_pool()
@@ -160,6 +231,11 @@ class Database:
 
     @asynccontextmanager
     async def transaction(self) -> AsyncGenerator[AsyncConnection, None]:
+        """Get connection with transaction context.
+
+        Yields:
+            AsyncConnection: Database connection in transaction
+        """
         pool = await self.get_pool()
         async with pool.connection() as conn:
             async with conn.transaction():

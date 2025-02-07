@@ -1,6 +1,6 @@
 # Database Management
 
-The `Database` class is the core component of psycopg-toolkit that manages PostgreSQL database connections and provides connection pooling functionality. It handles connection lifecycle, pool management, health checks, and provides a robust interface for database operations.
+The `Database` class is the core component of psycopg-toolkit that manages PostgreSQL database connections using psycopg3. It provides connection pooling, transaction management, health checks, and a robust interface for database operations.
 
 ## Quick Start
 
@@ -16,16 +16,17 @@ settings = DatabaseSettings(
     password="mypassword"
 )
 
-# Create and initialize database
+# Initialize database with connection pool
 db = Database(settings)
 await db.init_db()
 
 # Use the database
 async with db.connection() as conn:
-    # Your database operations here
-    pass
+    async with conn.cursor() as cur:
+        await cur.execute("SELECT * FROM mytable")
+        results = await cur.fetchall()
 
-# Cleanup
+# Cleanup when done
 await db.cleanup()
 ```
 
@@ -33,7 +34,7 @@ await db.cleanup()
 
 ### Database Settings
 
-The `DatabaseSettings` class provides configuration options for database connections:
+The `DatabaseSettings` class handles database configuration:
 
 ```python
 settings = DatabaseSettings(
@@ -44,92 +45,84 @@ settings = DatabaseSettings(
     user="myuser",          # Database user
     password="mypassword",  # Database password
     
-    # Optional settings (with defaults)
-    min_pool_size=5,        # Minimum connections in pool
-    max_pool_size=20,       # Maximum connections in pool
-    pool_timeout=30,        # Connection acquisition timeout (seconds)
-    connection_timeout=5.0,  # Initial connection timeout (seconds)
-    statement_timeout=None   # SQL statement timeout (seconds)
+    # Optional settings
+    min_pool_size=5,        # Minimum connections (default: 5)
+    max_pool_size=20,       # Maximum connections (default: 20)  
+    pool_timeout=30,        # Connection timeout in seconds (default: 30)
+    connection_timeout=5.0,  # Initial connection timeout (default: 5.0)
+    statement_timeout=None   # SQL statement timeout (default: None)
 )
 ```
 
-## Connection Management
+## Core Features
 
-### Basic Connection Usage
+### Connection Management
 
-The `connection()` context manager provides safe handling of database connections:
+The Database class provides several ways to manage connections:
 
 ```python
+# Context manager for automatic connection handling
 async with db.connection() as conn:
     async with conn.cursor() as cur:
-        await cur.execute("SELECT * FROM mytable")
-        results = await cur.fetchall()
+        await cur.execute("SELECT 1")
+
+# Transaction context manager
+async with db.transaction() as conn:
+    async with conn.cursor() as cur:
+        await cur.execute("INSERT INTO users (name) VALUES (%s)", ["Alice"])
+
+# Get transaction manager for advanced transaction control
+tm = await db.get_transaction_manager()
+async with tm.transaction() as conn:
+    # Transaction operations
+    pass
 ```
 
 ### Connection Pool Features
 
-The database maintains a connection pool with:
+The connection pool provides:
+
 - Automatic connection acquisition and release
-- Connection timeouts
-- Pool size management
 - Connection validation
+- Pool size management
+- Connection timeouts
 - Automatic retry with exponential backoff
 
-### Pool Lifecycle
+### Health Monitoring
 
 ```python
-# Initialize the pool
-await db.init_db()
+# Check database connectivity
+is_available = db.ping_postgres()
 
-# Check if pool is active
-if db.is_pool_active():
-    print("Pool is ready")
-
-# Cleanup pool when done
-await db.cleanup()
-```
-
-## Health Monitoring
-
-### Database Health Checks
-
-```python
-# Simple ping check
-try:
-    is_available = db.ping_postgres()
-    print(f"Database is available: {is_available}")
-except DatabaseConnectionError as e:
-    print(f"Database is not available: {e}")
-
-# Comprehensive pool health check
+# Check pool health
 is_healthy = await db.check_pool_health()
-if not is_healthy:
-    print("Pool requires attention")
+
+# Get pool status
+is_active = db.is_pool_active()
 ```
 
-## Initialization Callbacks
+### Initialization Callbacks
 
-You can register callbacks that will be executed after pool initialization:
+Register functions to run after pool initialization:
 
 ```python
 async def init_schema(pool):
-    """Create initial database schema."""
     async with pool.connection() as conn:
         async with conn.cursor() as cur:
             await cur.execute("""
                 CREATE TABLE IF NOT EXISTS users (
-                    id UUID PRIMARY KEY,
+                    id SERIAL PRIMARY KEY,
                     name TEXT NOT NULL
                 )
             """)
 
-# Register the callback
+# Register callback
 await db.register_init_callback(init_schema)
 ```
 
 ## Error Handling
 
-The Database class provides specific exceptions for different scenarios:
+The Database class provides specific exceptions:
 
 ```python
 try:
@@ -138,17 +131,12 @@ try:
         pass
 except DatabaseConnectionError as e:
     print(f"Connection error: {e}")
+    print(f"Original error: {e.original_error}")
 except DatabasePoolError as e:
     print(f"Pool error: {e}")
 except DatabaseNotAvailable as e:
     print(f"Database not available: {e}")
 ```
-
-### Exception Types
-
-- `DatabaseConnectionError`: Raised for connection failures
-- `DatabasePoolError`: Raised for pool-related issues
-- `DatabaseNotAvailable`: Raised when database is not accessible
 
 ## Best Practices
 
@@ -156,15 +144,25 @@ except DatabaseNotAvailable as e:
 
 1. Always use async context managers:
 ```python
+# Good
 async with db.connection() as conn:
-    # Your code here
+    # Operations
+    pass
+
+# Bad - Manual connection handling
+conn = await pool.getconn()
+try:
+    # Operations
+    pass
+finally:
+    await pool.putconn(conn)
 ```
 
-2. Properly initialize and cleanup:
+2. Clean up resources:
 ```python
 try:
     await db.init_db()
-    # Your application code
+    # Application code
 finally:
     await db.cleanup()
 ```
@@ -174,31 +172,26 @@ finally:
 1. Set appropriate pool sizes:
 ```python
 settings = DatabaseSettings(
-    # ... other settings ...
-    min_pool_size=5,    # Adjust based on minimum load
-    max_pool_size=20,   # Adjust based on maximum load
-    pool_timeout=30     # Adjust based on operation timing
+    # ... connection settings ...
+    min_pool_size=5,     # Base on minimum load
+    max_pool_size=20,    # Base on maximum load
+    pool_timeout=30      # Adjust for operation timing
 )
 ```
 
-2. Monitor pool health regularly:
+2. Monitor pool health:
 ```python
 if not await db.check_pool_health():
-    # Implement recovery logic
-    pass
+    # Handle unhealthy pool
+    await notify_admin("Database pool requires attention")
 ```
 
 ### Error Recovery
 
-1. Implement retry logic for transient failures:
+1. Use built-in retry mechanism:
 ```python
-from tenacity import retry, stop_after_attempt
-
-@retry(stop=stop_after_attempt(3))
-async def perform_db_operation():
-    async with db.connection() as conn:
-        # Your operation here
-        pass
+# Database.ping_postgres() automatically retries with exponential backoff
+is_available = db.ping_postgres()
 ```
 
 2. Handle cleanup properly:
@@ -209,14 +202,15 @@ try:
 except Exception:
     # Handle errors
 finally:
-    await db.cleanup()  # Always cleanup
+    await db.cleanup()
 ```
 
 ## Advanced Usage
 
-### Custom Pool Configuration
+### Connection Pool Management
 
 ```python
+# Create pool with custom settings
 settings = DatabaseSettings(
     # ... basic settings ...
     min_pool_size=10,
@@ -225,52 +219,266 @@ settings = DatabaseSettings(
     connection_timeout=10.0,
     statement_timeout=30.0
 )
+
+# Initialize pool
+db = Database(settings)
+await db.create_pool()
+```
+
+### Statement Timeout Configuration
+
+```python
+settings = DatabaseSettings(
+    # ... other settings ...
+    statement_timeout=30.0  # 30 second timeout for queries
+)
+
+db = Database(settings)
+await db.init_db()
+
+async with db.connection() as conn:
+    # All queries in this connection have 30s timeout
+    async with conn.cursor() as cur:
+        await cur.execute("SELECT * FROM large_table")
 ```
 
 ### Multiple Database Support
 
 ```python
-# Create multiple database instances
-db1 = Database(settings_primary)
-db2 = Database(settings_replica)
+# Create separate database instances
+db_primary = Database(settings_primary)
+db_replica = Database(settings_replica)
 
 # Initialize both
-await db1.init_db()
-await db2.init_db()
+await db_primary.init_db()
+await db_replica.init_db()
 
 try:
     # Use appropriate database based on operation
-    async with db1.connection() as conn:
+    async with db_primary.connection() as conn:
         # Write operations
         pass
     
-    async with db2.connection() as conn:
+    async with db_replica.connection() as conn:
         # Read operations
         pass
 finally:
     # Cleanup both
-    await db1.cleanup()
-    await db2.cleanup()
+    await db_primary.cleanup()
+    await db_replica.cleanup()
 ```
 
-## Integration with Other Components
+## Architecture
 
-### With Transaction Manager
+### Database lifecycle Sequence diagram
 
-```python
-# Get transaction manager
-tm = await db.get_transaction_manager()
+```mermaid
+sequenceDiagram
+    participant A as Application
+    participant D as Database
+    participant P as Pool
+    participant C as Connection
+    participant CB as Callbacks
 
-# Use in transactions
-async with tm.transaction() as conn:
-    # Your transactional code here
-    pass
+    A->>+D: Database(settings)
+    D-->>-A: database instance
+
+    A->>+D: init_db()
+    D->>+P: create_pool()
+    P-->>-D: pool
+    
+    D->>+P: get_pool()
+    P-->>-D: pool
+    
+    D->>+P: connection()
+    P->>+C: acquire connection
+    C-->>-P: connection
+    P-->>-D: connection
+
+    D->>+CB: execute_callbacks(pool)
+    CB-->>-D: done
+    D-->>-A: initialized
+
+    Note over A,D: Use Database...
+
+    A->>+D: cleanup()
+    D->>+P: close()
+    P->>P: close all connections
+    P-->>-D: closed
+    D-->>-A: cleaned up
 ```
 
-### With Repositories
+### Error handling flow
 
-```python
-async with db.connection() as conn:
-    repository = UserRepository(conn)
-    users = await repository.get_all()
+```mermaid
+sequenceDiagram
+    participant A as Application
+    participant D as Database
+    participant R as RetryMechanism
+    participant P as Pool
+    participant C as Connection
+
+    A->>+D: operation()
+    
+    alt First Attempt
+        D->>+P: get_connection()
+        P-->>-D: ConnectionError
+        D->>+R: retry_operation()
+    end
+
+    loop Retry with Exponential Backoff
+        R->>R: calculate_delay
+        R->>R: wait
+        R->>+P: get_connection()
+        
+        alt Success
+            P-->>R: connection
+            R-->>-D: connection
+            D-->>A: success
+        else Max Retries Exceeded
+            R-->>D: RetryError
+            D-->>A: DatabaseConnectionError
+        end
+    end
+
+    Note over A,C: Exception Hierarchy
+
+    Note right of A: PsycoDBException
+    Note right of A: ├── DatabaseConnectionError
+    Note right of A: ├── DatabasePoolError
+    Note right of A: ├── DatabaseNotAvailable
+    Note right of A: └── RepositoryError
+    Note right of A: ├── RecordNotFoundError
+    Note right of A: ├── InvalidDataError
+    Note right of A: └── OperationError
+```
+
+### Schema management lifecycle
+
+```mermaid
+sequenceDiagram
+    participant A as Application
+    participant R as Repository
+    participant H as PsycopgHelper
+    participant C as Connection
+    participant M as PydanticModel
+
+    Note over A,M: Create Operation
+
+    A->>+R: create(item)
+    R->>+M: model_dump()
+    M-->>-R: dict_data
+    R->>+H: build_insert_query()
+    H-->>-R: safe_query
+    R->>+C: execute(query)
+    C-->>-R: result
+    R->>+M: model_class(**result)
+    M-->>-R: model
+    R-->>-A: created_item
+
+    Note over A,M: Read Operation
+
+    A->>+R: get_by_id(id)
+    R->>+H: build_select_query()
+    H-->>-R: safe_query
+    R->>+C: execute(query)
+    C-->>-R: result
+    alt Record Found
+        R->>+M: model_class(**result)
+        M-->>-R: model
+        R-->>-A: item
+    else Not Found
+        R-->>A: RecordNotFoundError
+    end
+
+    Note over A,M: Update Operation
+
+    A->>+R: update(id, data)
+    R->>+H: build_update_query()
+    H-->>-R: safe_query
+    R->>+C: execute(query)
+    C-->>-R: result
+    R->>+M: model_class(**result)
+    M-->>-R: model
+    R-->>-A: updated_item
+
+    Note over A,M: Delete Operation
+
+    A->>+R: delete(id)
+    R->>+H: build_delete_query()
+    H-->>-R: safe_query
+    R->>+C: execute(query)
+    C-->>-R: result
+    alt Success
+        R-->>-A: success
+    else Not Found
+        R-->>A: RecordNotFoundError
+    end
+```
+
+### Pool Lifecycle Sequence diagram
+
+```mermaid
+sequenceDiagram
+    participant A as Application
+    participant D as Database
+    participant P as Pool
+    participant C as Connection
+    participant H as HealthCheck
+
+    rect rgb(240, 240, 240)
+        Note over A,C: Initialization Phase
+    end
+
+    A->>+D: init_db()
+    D->>+D: ping_postgres()
+    D-->>-D: available
+    
+    D->>+P: create_pool(settings)
+    P->>P: configure pool
+    loop Min Pool Size
+        P->>+C: create_connection()
+        C-->>-P: connection
+    end
+    P-->>-D: pool_ready
+
+    rect rgb(240, 240, 240)
+        Note over A,C: Usage Phase
+    end
+
+    A->>+D: connection()
+    D->>+P: get_connection()
+    
+    alt Pool Has Available
+        P-->>D: existing_connection
+    else Need New Connection
+        P->>+C: create_connection()
+        C-->>-P: new_connection
+        P-->>D: new_connection
+    end
+    D-->>-A: connection
+
+    rect rgb(240, 240, 240)
+        Note over A,C: Health Monitoring
+    end
+
+    A->>+D: check_pool_health()
+    D->>+H: test_query()
+    H->>+C: execute(SELECT 1)
+    C-->>-H: result
+    H-->>-D: health_status
+    D-->>-A: is_healthy
+
+    rect rgb(240, 240, 240)
+        Note over A,C: Cleanup Phase
+    end
+
+    A->>+D: cleanup()
+    D->>+P: close()
+    loop For Each Connection
+        P->>+C: close()
+        C-->>-P: closed
+    end
+    P-->>-D: pool_closed
+    D-->>-A: cleaned_up
 ```

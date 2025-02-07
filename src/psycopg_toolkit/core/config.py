@@ -1,10 +1,27 @@
 from dataclasses import dataclass
-from typing import Optional, Any, Dict
+from typing import Optional, Dict, Any
 
 
 @dataclass
 class DatabaseSettings:
-    """Database connection and pool settings."""
+    """Database connection and pool configuration settings.
+
+    This class manages PostgreSQL database connection parameters and connection pool settings.
+    It provides methods to generate connection strings and convert settings to dictionaries.
+
+    Attributes:
+        host (str): Database server hostname or IP address
+        port (int): Database server port number
+        dbname (str): Name of the database to connect to
+        user (str): Username for database authentication
+        password (str): Password for database authentication
+        min_pool_size (int): Minimum number of connections in the pool (default: 5)
+        max_pool_size (int): Maximum number of connections in the pool (default: 20)
+        pool_timeout (int): Maximum time in seconds to wait for a connection (default: 30)
+        connection_timeout (float): Connection establishment timeout in seconds (default: 5.0)
+        statement_timeout (Optional[float]): SQL statement execution timeout in seconds (default: None)
+    """
+
     host: str
     port: int
     dbname: str
@@ -18,11 +35,22 @@ class DatabaseSettings:
 
     @property
     def connection_string(self) -> str:
-        """Generate connection string."""
+        """Generate a PostgreSQL connection string using current settings.
+
+        Returns:
+            str: Formatted connection string for psycopg
+        """
         return self.get_connection_string()
 
     def get_connection_string(self, timeout: Optional[float] = None) -> str:
-        """Generate connection string with optional timeout."""
+        """Generate a PostgreSQL connection string with optional timeout override.
+
+        Args:
+            timeout (Optional[float]): Optional connection timeout override in seconds
+
+        Returns:
+            str: Formatted connection string for psycopg
+        """
         conn_str = (
             f"host={self.host} "
             f"port={self.port} "
@@ -35,7 +63,15 @@ class DatabaseSettings:
         return conn_str
 
     def to_dict(self, connection_only: bool = True) -> Dict[str, Any]:
-        """Convert settings to dictionary."""
+        """Convert settings to a dictionary.
+
+        Args:
+            connection_only (bool): If True, include only connection parameters.
+                                  If False, include all settings including pool configuration.
+
+        Returns:
+            Dict[str, Any]: Dictionary containing the settings
+        """
         if connection_only:
             return {
                 'host': self.host,

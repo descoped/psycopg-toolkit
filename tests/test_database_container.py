@@ -12,7 +12,7 @@ def test_container(postgres_container: PostgresContainer):
 
 
 @pytest.mark.asyncio
-def test_settings(test_settings: DatabaseSettings):
+def test_database_settings(test_settings: DatabaseSettings):
     print(f"\fDatabase settings: {test_settings}")
 
 

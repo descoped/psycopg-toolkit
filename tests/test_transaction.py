@@ -1,5 +1,5 @@
 from contextlib import AbstractAsyncContextManager
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from psycopg.errors import OperationalError
@@ -14,8 +14,6 @@ from psycopg_toolkit import (
 
 
 class MockTransaction(AbstractAsyncContextManager):
-    """Mock for psycopg Transaction that properly implements async context manager"""
-
     async def __aenter__(self):
         return self
 
@@ -24,8 +22,6 @@ class MockTransaction(AbstractAsyncContextManager):
 
 
 class MockConnection(AsyncMock):
-    """Mock for psycopg Connection with proper transaction support"""
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._transaction = MockTransaction()
@@ -50,116 +46,120 @@ def db_settings():
 
 @pytest.fixture
 async def mock_pool():
-    # Create the pool mock.
     pool = AsyncMock(spec=AsyncConnectionPool)
-
-    # Create a connection that properly handles transactions.
     conn = MockConnection()
 
-    # Make pool.connection() return an async context manager that yields our connection.
     cm = AsyncMock()
     cm.__aenter__.return_value = conn
     cm.__aexit__.return_value = None
     pool.connection.return_value = cm
+    pool.close = AsyncMock()
 
     return pool
 
 
 @pytest.fixture
-async def database(db_settings):
-    db = Database(db_settings)
-    db._pool = AsyncMock(spec=AsyncConnectionPool)
-    db._pool.closed = False
-    yield db
-    await db.cleanup()
+async def database(db_settings, mock_pool):
+    with patch.object(Database, 'ping_postgres', return_value=True):
+        db = Database(db_settings)
+        db._pool = mock_pool
+        db._pool.closed = False
+        yield db
+        try:
+            await db.cleanup()
+        except Exception:
+            pass
+
+
+@pytest.fixture
+async def setup_mock_pool(database, mock_pool):
+    database._pool = mock_pool
+    database._pool.closed = False
+    return database
 
 
 @pytest.mark.asyncio
 async def test_transaction_manager_exists(database):
-    """Test that we can access the transaction manager and it's properly instantiated."""
     transaction_manager = await database.get_transaction_manager()
     assert transaction_manager is not None
     assert isinstance(transaction_manager, TransactionManager)
 
-    # Verify it's the same instance when accessed multiple times.
     second_instance = await database.get_transaction_manager()
     assert transaction_manager is second_instance
 
 
 @pytest.mark.asyncio
-async def test_successful_transaction(database, mock_pool):
-    """Test successful transaction flow."""
-    # Set up database pool.
-    database._pool = mock_pool
-    mock_pool.closed = False
-
+async def test_successful_transaction(setup_mock_pool):
+    database = setup_mock_pool
     tm = await database.get_transaction_manager()
-    transaction_context = tm.transaction()  # Assign to local variable.
-    async with transaction_context as conn:
-        # Verify we got a connection.
+    async with tm.transaction() as conn:
         assert isinstance(conn, MockConnection)
-        # Verify transaction was started.
         assert hasattr(conn, '_transaction')
 
 
 @pytest.mark.asyncio
-async def test_transaction_rollback_on_error(database, mock_pool):
-    """Test that transaction is rolled back when an exception occurs."""
-    database._pool = mock_pool
-    mock_pool.closed = False
+async def test_transaction_rollback_on_error(setup_mock_pool):
+    database = setup_mock_pool
     tm = await database.get_transaction_manager()
 
     async def run_test():
-        transaction_context = tm.transaction()  # Assign to local variable.
-        async with transaction_context as conn:
+        async with tm.transaction() as conn:
             assert isinstance(conn, MockConnection)
             assert hasattr(conn, '_transaction')
             raise ValueError("Test error")
 
-    # Expect a DatabaseConnectionError.
     with pytest.raises(DatabaseConnectionError) as excinfo:
         await run_test()
 
-    # Instead of checking excinfo.value.args, check __context__.
-    assert excinfo.value.__context__ is not None, "Expected the original exception in __context__"
+    assert excinfo.value.__context__ is not None
     original_exception = excinfo.value.__context__
     assert isinstance(original_exception, ValueError)
     assert "Test error" in str(original_exception)
 
 
 @pytest.mark.asyncio
-async def test_transaction_connection_error(database, mock_pool):
-    """Test behavior when database connection fails."""
+async def test_transaction_connection_error(setup_mock_pool):
+    database = setup_mock_pool
     conn_cm = AsyncMock()
     conn_cm.__aenter__.side_effect = OperationalError("Connection failed")
-    mock_pool.connection.return_value = conn_cm
-
-    database._pool = mock_pool
-    mock_pool.closed = False
+    database._pool.connection.return_value = conn_cm
 
     tm = await database.get_transaction_manager()
-    transaction_context = tm.transaction()  # Assign to local variable.
     with pytest.raises(DatabaseConnectionError):
-        async with transaction_context:
+        async with tm.transaction():
             pytest.fail("Should not reach this point")
 
 
 @pytest.mark.asyncio
-async def test_nested_transaction(database, mock_pool):
-    """Test that nested transactions work correctly and reuse the same connection."""
-    # Set up database pool.
-    database._pool = mock_pool
-    mock_pool.closed = False
-
+async def test_nested_transaction(setup_mock_pool):
+    database = setup_mock_pool
     tm = await database.get_transaction_manager()
-    outer_transaction = tm.transaction()  # Assign to local variable.
-    async with outer_transaction as outer_conn:
-        # Verify outer transaction setup.
+
+    async with tm.transaction() as outer_conn:
         assert isinstance(outer_conn, MockConnection)
         assert hasattr(outer_conn, '_transaction')
 
-        inner_transaction = tm.transaction()  # Also assign inner transaction to local variable.
-        async with inner_transaction as inner_conn:
-            # Verify inner transaction uses the same connection.
+        async with tm.transaction() as inner_conn:
             assert inner_conn is outer_conn
             assert hasattr(inner_conn, '_transaction')
+
+
+@pytest.mark.asyncio
+async def test_cleanup_closes_pool(setup_mock_pool):
+    database = setup_mock_pool
+    original_pool = database._pool
+    await database.cleanup()
+    original_pool.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_pool_size_limits(db_settings):
+    with patch.object(Database, 'ping_postgres', return_value=True):
+        with patch('psycopg_toolkit.core.database.AsyncConnectionPool', autospec=True) as pool_mock:
+            database = Database(db_settings)
+            await database.get_pool()
+
+            pool_mock.assert_called_once()
+            call_kwargs = pool_mock.call_args.kwargs
+            assert call_kwargs['min_size'] == db_settings.min_pool_size
+            assert call_kwargs['max_size'] == db_settings.max_pool_size
