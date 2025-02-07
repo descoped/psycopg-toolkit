@@ -28,9 +28,12 @@ psycopg-pool = "^3.2.4"
 tenacity = "^9.0.0"
 pydantic = "^2.10.5"
 
-[tool.poetry.group.dev.dependencies]
+[tool.poetry.group.test.dependencies]
 pytest = "^8.3.0"
 pytest-asyncio = "^0.25.2"
+testcontainers = {extras = ["postgresql"], version = "^4.9.1"}
+
+[tool.poetry.group.dev.dependencies]
 flake8 = "^7.1.0"
 restructuredtext-lint = "^1.4.0"
 pygments = "^2.19.1"
@@ -49,4 +52,4 @@ markers = [
 ]
 
 [tool.poetry.scripts]
-fix-readme = "scripts.fix_readme:main"
+make-readme = "scripts.make_readme:main"

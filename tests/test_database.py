@@ -38,6 +38,10 @@ async def database(db_settings):
     yield db
     await db.cleanup()
 
+def test_calc():
+    a = 5
+    print(f"Value of a is {a**5=}")
+
 
 @pytest.mark.asyncio
 async def test_database_init(database, db_settings):
