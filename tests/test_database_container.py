@@ -6,12 +6,10 @@ from testcontainers.postgres import PostgresContainer
 from psycopg_toolkit import DatabaseSettings, TransactionManager
 
 
-@pytest.mark.asyncio
 def test_container(postgres_container: PostgresContainer):
     print(f"\nPostgres URL: {postgres_container.get_connection_url()}")
 
 
-@pytest.mark.asyncio
 def test_database_settings(test_settings: DatabaseSettings):
     print(f"\fDatabase settings: {test_settings}")
 
