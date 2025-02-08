@@ -1,47 +1,5 @@
-"""
-Generic base repository module for database operations.
-
-This module provides a generic base repository class that can be used to implement
-the repository pattern for any database table. It uses generics to ensure type safety
-and provides common CRUD (Create, Read, Update, Delete) operations.
-
-The BaseRepository class is designed to work with PostgreSQL databases using psycopg3,
-and expects Pydantic models for data validation and serialization.
-
-Example:
-    ```python
-    class UserModel(BaseModel):
-        id: UUID
-        name: str
-        email: str
-
-    class UserRepository(BaseRepository[UserModel]):
-        def __init__(self, db_connection: AsyncConnection):
-            super().__init__(
-                db_connection=db_connection,
-                table_name="users",
-                model_class=UserModel,
-                primary_key="id"
-            )
-
-    # Usage
-    user_repo = UserRepository(db_connection)
-    user = await user_repo.get_by_id(user_id)
-    ```
-
-Attributes:
-    T: Generic type variable representing the model type this repository handles
-    logger: Logger instance for the module
-
-Dependencies:
-    - psycopg: For PostgreSQL database operations
-    - pydantic: For data validation and serialization
-    - fastapi: For HTTP exception handling
-"""
-
 import logging
 from typing import TypeVar, Generic, List, Optional, Dict, Any
-from uuid import UUID
 
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
@@ -53,22 +11,24 @@ from ..exceptions import (
 )
 from ..utils import PsycopgHelper
 
-# Generic type variable for models
+# Generic type variables for model and primary key
 T = TypeVar('T')
+K = TypeVar('K')
 
 logger = logging.getLogger(__name__)
 
 
-class BaseRepository(Generic[T]):
+class BaseRepository(Generic[T, K]):
     """
     Generic base repository implementing common database operations.
 
     This class provides a foundation for implementing the repository pattern with
     PostgreSQL databases. It includes basic CRUD operations and uses generics to
-    ensure type safety with different model types.
+    ensure type safety with different model and primary key types.
 
     Type Parameters:
         T: The model type this repository handles. Must be a Pydantic model.
+        K: The primary key type (e.g., UUID, int, str).
 
     Attributes:
         db_connection (AsyncConnection): Active database connection.
@@ -78,13 +38,23 @@ class BaseRepository(Generic[T]):
 
     Example:
         ```python
-        class DocumentRepository(BaseRepository[Document]):
+        class DocumentRepository(BaseRepository[Document, UUID]):
             def __init__(self, db_connection: AsyncConnection):
                 super().__init__(
                     db_connection=db_connection,
                     table_name="documents",
                     model_class=Document,
                     primary_key="document_id"
+                )
+
+        # Or with an integer primary key
+        class UserRepository(BaseRepository[User, int]):
+            def __init__(self, db_connection: AsyncConnection):
+                super().__init__(
+                    db_connection=db_connection,
+                    table_name="users",
+                    model_class=User,
+                    primary_key="user_id"
                 )
         ```
     """
@@ -108,6 +78,7 @@ class BaseRepository(Generic[T]):
         Note:
             The model_class should be a Pydantic model that matches the database schema.
             The primary_key should match the actual primary key column name in the database.
+            The primary key type K is inferred from the model's type hints.
         """
         self.db_connection = db_connection
         self.table_name = table_name
@@ -200,12 +171,12 @@ class BaseRepository(Generic[T]):
             logger.error(f"Error in create_bulk: {e}")
             raise OperationError(f"Failed to create records in bulk: {str(e)}") from e
 
-    async def get_by_id(self, record_id: UUID) -> Optional[T]:
+    async def get_by_id(self, record_id: K) -> Optional[T]:
         """
         Retrieve a record by its ID.
 
         Args:
-            record_id (UUID): The unique identifier of the record.
+            record_id (K): The unique identifier of the record.
 
         Returns:
             Optional[T]: The found model instance or None if not found.
@@ -215,9 +186,11 @@ class BaseRepository(Generic[T]):
 
         Example:
             ```python
+            # With UUID primary key
             item = await repo.get_by_id(uuid.UUID('...'))
-            if item:
-                print(f"Found item: {item.name}")
+
+            # With integer primary key
+            user = await user_repo.get_by_id(123)
             ```
         """
         try:
@@ -266,12 +239,12 @@ class BaseRepository(Generic[T]):
             logger.error(f"Error in get_all: {e}")
             raise OperationError(f"Failed to get all records: {str(e)}") from e
 
-    async def update(self, record_id: UUID, data: Dict[str, Any]) -> T:
+    async def update(self, record_id: K, data: Dict[str, Any]) -> T:
         """
         Update a record by its ID.
 
         Args:
-            record_id (UUID): The unique identifier of the record to update.
+            record_id (K): The unique identifier of the record to update.
             data (Dict[str, Any]): Dictionary of fields and values to update.
 
         Returns:
@@ -283,9 +256,16 @@ class BaseRepository(Generic[T]):
 
         Example:
             ```python
-            updated_item = await repo.update(
-                item_id,
-                {"name": "new name", "description": "new description"}
+            # With UUID primary key
+            updated_doc = await doc_repo.update(
+                uuid.UUID('...'),
+                {"name": "new name"}
+            )
+
+            # With integer primary key
+            updated_user = await user_repo.update(
+                123,
+                {"email": "new@email.com"}
             )
             ```
         """
@@ -310,19 +290,23 @@ class BaseRepository(Generic[T]):
                 raise
             raise OperationError(f"Failed to update record: {str(e)}") from e
 
-    async def delete(self, record_id: UUID) -> None:
+    async def delete(self, record_id: K) -> None:
         """
         Delete a record by its ID.
 
         Args:
-            record_id (UUID): The unique identifier of the record to delete.
+            record_id (K): The unique identifier of the record to delete.
 
         Raises:
             HTTPException: If the deletion fails or database error occurs.
 
         Example:
             ```python
-            await repo.delete(item_id)
+            # With UUID primary key
+            await doc_repo.delete(uuid.UUID('...'))
+
+            # With integer primary key
+            await user_repo.delete(123)
             ```
 
         Note:
@@ -343,12 +327,12 @@ class BaseRepository(Generic[T]):
                 raise
             raise OperationError(f"Failed to delete record: {str(e)}") from e
 
-    async def exists(self, record_id: UUID) -> bool:
+    async def exists(self, record_id: K) -> bool:
         """
         Check if a record exists by its ID.
 
         Args:
-            record_id (UUID): The unique identifier to check.
+            record_id (K): The unique identifier to check.
 
         Returns:
             bool: True if the record exists, False otherwise.
@@ -358,8 +342,13 @@ class BaseRepository(Generic[T]):
 
         Example:
             ```python
-            if await repo.exists(item_id):
-                print("Item exists")
+            # With UUID primary key
+            if await doc_repo.exists(uuid.UUID('...')):
+                print("Document exists")
+
+            # With integer primary key
+            if await user_repo.exists(123):
+                print("User exists")
             ```
         """
         try:

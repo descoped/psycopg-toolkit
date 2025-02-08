@@ -19,7 +19,7 @@ class User(BaseModel):
 
 
 # Repository Implementation
-class UserRepository(BaseRepository[User]):
+class UserRepository(BaseRepository[User, UUID]):
     def __init__(self, db_connection: AsyncConnection):
         super().__init__(
             db_connection=db_connection,
