@@ -4,7 +4,7 @@ The `BaseRepository` implements the repository pattern, providing a type-safe, g
 
 ## Understanding the Design
 
-The repository uses generics to ensure type safety:
+The repository uses generics to ensure type safety for both models and primary keys:
 
 ```python
 from uuid import UUID
@@ -13,12 +13,12 @@ from psycopg_toolkit import BaseRepository
 
 # Define your data model with Pydantic
 class User(BaseModel):
-    id: UUID
+    id: UUID  # Or any other primary key type (int, str, etc.)
     username: str
     email: str
 
-# Create a typed repository
-class UserRepository(BaseRepository[User]):
+# Create a typed repository specifying model and primary key type
+class UserRepository(BaseRepository[User, UUID]):  # Or [User, int] for integer primary keys
     def __init__(self, db_connection):
         super().__init__(
             db_connection=db_connection,
@@ -28,10 +28,12 @@ class UserRepository(BaseRepository[User]):
         )
 ```
 
-The generic type parameter `[User]` ensures that:
+The generic type parameters ensure that:
 - Only User objects can be created through this repository
 - All queries return properly typed User objects
 - Type checking catches mismatched models at compile time
+- Primary key operations use the correct type (UUID, int, etc.)
+- Primary key type safety is enforced at compile time
 
 ## CRUD Operations Explained
 
@@ -42,7 +44,7 @@ The generic type parameter `[User]` ensures that:
 async def create_user():
     # Create Pydantic model instance - validates data
     user_data = User(
-        id=uuid4(),
+        id=uuid4(),  # Or any valid primary key type
         username="john_doe",
         email="john@example.com"
     )
@@ -83,8 +85,8 @@ async def create_many_users():
 ### Read: Safe Query Construction
 
 ```python
-# Get by ID - Type-safe UUID lookup
-async def get_user(user_id: UUID):
+# Get by ID - Type-safe primary key lookup
+async def get_user(user_id: UUID):  # Or user_id: int for integer primary keys
     # Repository handles:
     # 1. Constructs safe parameterized query
     # 2. Executes with proper parameter binding
@@ -115,7 +117,8 @@ await cur.execute(select_query, [record_id])
 ### Update: Safe Data Modifications
 
 ```python
-async def update_user(user_id: UUID):
+# Type-safe updates using the correct primary key type
+async def update_user(user_id: UUID):  # Or user_id: int for integer primary keys
     # Specify only fields that need updating
     updates = {
         "username": "new_username",
@@ -146,7 +149,7 @@ await cur.execute(update_query + SQL(" RETURNING *"),
 ### Delete: Safe Record Removal
 
 ```python
-async def remove_user(user_id: UUID):
+async def remove_user(user_id: UUID):  # Or user_id: int for integer primary keys
     # Repository handles:
     # 1. Verifies record exists
     # 2. Constructs safe DELETE query
@@ -195,7 +198,7 @@ async with tm.transaction() as conn:
     
     # Create and update in same transaction
     user = await repo.create(User(
-        id=uuid4(),
+        id=uuid4(),  # Or any valid primary key
         username="john",
         email="john@example.com"
     ))
@@ -223,7 +226,7 @@ async with db.connection() as conn:
 While the base repository provides common operations, you can extend it for custom needs:
 
 ```python
-class UserRepository(BaseRepository[User]):
+class UserRepository(BaseRepository[User, UUID]):  # Specify model and primary key type
     async def find_by_email(self, email: str) -> Optional[User]:
         query = PsycopgHelper.build_select_query(
             self.table_name,
@@ -265,7 +268,7 @@ sequenceDiagram
 
     Note over A,M: Create Operation
 
-    A->>+R: create(item)
+    A->>+R: create(item: T)
     R->>+M: model_dump()
     M-->>-R: dict_data
     R->>+H: build_insert_query()
@@ -273,38 +276,38 @@ sequenceDiagram
     R->>+C: execute(query)
     C-->>-R: result
     R->>+M: model_class(**result)
-    M-->>-R: model
-    R-->>-A: created_item
+    M-->>-R: model: T
+    R-->>-A: created_item: T
 
     Note over A,M: Read Operation
 
-    A->>+R: get_by_id(id)
+    A->>+R: get_by_id(id: K)
     R->>+H: build_select_query()
     H-->>-R: safe_query
     R->>+C: execute(query)
     C-->>-R: result
     alt Record Found
         R->>+M: model_class(**result)
-        M-->>-R: model
-        R-->>-A: item
+        M-->>-R: model: T
+        R-->>-A: item: T
     else Not Found
         R-->>A: RecordNotFoundError
     end
 
     Note over A,M: Update Operation
 
-    A->>+R: update(id, data)
+    A->>+R: update(id: K, data)
     R->>+H: build_update_query()
     H-->>-R: safe_query
     R->>+C: execute(query)
     C-->>-R: result
     R->>+M: model_class(**result)
-    M-->>-R: model
-    R-->>-A: updated_item
+    M-->>-R: model: T
+    R-->>-A: updated_item: T
 
     Note over A,M: Delete Operation
 
-    A->>+R: delete(id)
+    A->>+R: delete(id: K)
     R->>+H: build_delete_query()
     H-->>-R: safe_query
     R->>+C: execute(query)
