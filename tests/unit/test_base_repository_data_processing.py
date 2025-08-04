@@ -10,6 +10,7 @@ from decimal import Decimal
 from pydantic import BaseModel, Field
 
 from psycopg_toolkit.repositories.base import BaseRepository
+from psycopg_toolkit.exceptions import JSONSerializationError
 
 
 class SampleJSONModel(BaseModel):
@@ -176,7 +177,7 @@ class TestBaseRepositoryDataProcessing:
             "metadata": {"bad_data": NonSerializable()}
         }
         
-        with pytest.raises(ValueError, match="JSON serialization failed"):
+        with pytest.raises(JSONSerializationError, match="JSON serialization failed"):
             json_repo._preprocess_data(test_data)
     
     def test_postprocess_data_with_json_fields(self, json_repo):

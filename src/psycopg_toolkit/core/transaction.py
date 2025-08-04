@@ -2,7 +2,7 @@ import logging
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import TypeVar, Generic, AsyncGenerator, Optional
+from typing import TypeVar, Generic, AsyncGenerator, Optional, Callable
 
 from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
@@ -110,15 +110,18 @@ class TransactionManager:
 
     Attributes:
         pool: Connection pool for database access
+        json_adapter_configurator: Optional function to configure JSON adapters
     """
 
-    def __init__(self, pool: AsyncConnectionPool):
-        """Initialize with connection pool.
+    def __init__(self, pool: AsyncConnectionPool, json_adapter_configurator: Optional[Callable[[AsyncConnection], None]] = None):
+        """Initialize with connection pool and optional JSON adapter configurator.
 
         Args:
             pool: AsyncConnectionPool instance
+            json_adapter_configurator: Optional function to configure JSON adapters on connections
         """
         self.pool = pool
+        self._json_adapter_configurator = json_adapter_configurator
 
     @asynccontextmanager
     async def transaction(self, savepoint: Optional[str] = None) -> AsyncGenerator[AsyncConnection, None]:
@@ -135,6 +138,10 @@ class TransactionManager:
         """
         try:
             async with self.pool.connection() as conn:
+                # Configure JSON adapters if provided
+                if self._json_adapter_configurator:
+                    self._json_adapter_configurator(conn)
+                
                 async with conn.transaction():
                     if savepoint:
                         async with TransactionContext(conn, savepoint):

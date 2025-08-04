@@ -89,7 +89,8 @@ async def test_transaction_manager_exists(database):
 
 
 @pytest.mark.asyncio
-async def test_successful_transaction(setup_mock_pool):
+@patch('psycopg_toolkit.core.database.json')
+async def test_successful_transaction(mock_json, setup_mock_pool):
     database = setup_mock_pool
     tm = await database.get_transaction_manager()
     async with tm.transaction() as conn:
@@ -98,7 +99,8 @@ async def test_successful_transaction(setup_mock_pool):
 
 
 @pytest.mark.asyncio
-async def test_transaction_rollback_on_error(setup_mock_pool):
+@patch('psycopg_toolkit.core.database.json')
+async def test_transaction_rollback_on_error(mock_json, setup_mock_pool):
     database = setup_mock_pool
     tm = await database.get_transaction_manager()
 
@@ -118,7 +120,8 @@ async def test_transaction_rollback_on_error(setup_mock_pool):
 
 
 @pytest.mark.asyncio
-async def test_transaction_connection_error(setup_mock_pool):
+@patch('psycopg_toolkit.core.database.json')
+async def test_transaction_connection_error(mock_json, setup_mock_pool):
     database = setup_mock_pool
     conn_cm = AsyncMock()
     conn_cm.__aenter__.side_effect = OperationalError("Connection failed")
@@ -131,7 +134,8 @@ async def test_transaction_connection_error(setup_mock_pool):
 
 
 @pytest.mark.asyncio
-async def test_nested_transaction(setup_mock_pool):
+@patch('psycopg_toolkit.core.database.json')
+async def test_nested_transaction(mock_json, setup_mock_pool):
     database = setup_mock_pool
     tm = await database.get_transaction_manager()
 

@@ -618,3 +618,707 @@ class TestBaseRepositoryCRUDWithJSON:
         # Should have postprocessing logs
         assert any("Deserialized JSON field" in call for call in debug_calls)
         assert any("Postprocessed 3 JSON fields" in call for call in debug_calls)
+    
+    # Tests for get_by_id() method
+    
+    async def test_get_by_id_with_json_fields(self, json_repo, sample_model):
+        """Test get_by_id method with JSON field postprocessing."""
+        # Mock database result with serialized JSON
+        db_result = {
+            "id": sample_model.id,
+            "name": "test_item",
+            "value": 42,
+            "metadata": '{"key": "value", "number": 123}',  # Serialized JSON
+            "tags": '["tag1", "tag2"]',                     # Serialized JSON
+            "settings": '{"theme": "dark"}'                 # Serialized JSON
+        }
+        
+        json_repo.db_connection._cursor.fetchone.return_value = db_result
+        
+        # Call get_by_id method
+        result = await json_repo.get_by_id(sample_model.id)
+        
+        # Verify the result
+        assert result is not None
+        assert result.name == "test_item"
+        assert result.value == 42
+        assert result.metadata == {"key": "value", "number": 123}  # Should be deserialized
+        assert result.tags == ["tag1", "tag2"]                     # Should be deserialized
+        assert result.settings == {"theme": "dark"}                # Should be deserialized
+    
+    async def test_get_by_id_with_none_json_fields(self, json_repo, sample_model):
+        """Test get_by_id method with None values in JSON fields."""
+        db_result = {
+            "id": sample_model.id,
+            "name": "test_item",
+            "value": 42,
+            "metadata": '{"key": "value"}',
+            "tags": '["tag1"]',
+            "settings": None  # None value should remain None
+        }
+        
+        json_repo.db_connection._cursor.fetchone.return_value = db_result
+        
+        result = await json_repo.get_by_id(sample_model.id)
+        
+        assert result is not None
+        assert result.settings is None
+        assert result.metadata == {"key": "value"}
+        assert result.tags == ["tag1"]
+    
+    async def test_get_by_id_not_found(self, json_repo):
+        """Test get_by_id method when record is not found."""
+        from psycopg_toolkit.exceptions import RecordNotFoundError
+        from uuid import uuid4
+        
+        # Mock no result from database
+        json_repo.db_connection._cursor.fetchone.return_value = None
+        
+        with pytest.raises(RecordNotFoundError):
+            await json_repo.get_by_id(uuid4())
+    
+    async def test_get_by_id_database_error(self, json_repo):
+        """Test get_by_id method when database operation fails."""
+        from uuid import uuid4
+        
+        # Mock database error
+        json_repo.db_connection._cursor.execute.side_effect = Exception("Database connection failed")
+        
+        with pytest.raises(OperationError, match="Failed to get record"):
+            await json_repo.get_by_id(uuid4())
+    
+    async def test_get_by_id_with_complex_json_data(self, json_repo):
+        """Test get_by_id method with complex JSON data types."""
+        from uuid import uuid4
+        from datetime import datetime
+        from decimal import Decimal
+        
+        test_uuid = uuid4()
+        test_datetime = datetime.now()
+        test_decimal = Decimal("123.45")
+        
+        db_result = {
+            "id": test_uuid,
+            "name": "complex_test",
+            "value": 42,
+            "metadata": f'{{"uuid": "{test_uuid}", "timestamp": "{test_datetime.isoformat()}", "amount": {float(test_decimal)}, "nested": {{"deep": {{"value": "test"}}}}}}',
+            "tags": '["tag1", "tag2"]',
+            "settings": None
+        }
+        
+        json_repo.db_connection._cursor.fetchone.return_value = db_result
+        
+        result = await json_repo.get_by_id(test_uuid)
+        
+        # Complex types should be properly deserialized
+        assert result is not None
+        assert result.metadata["uuid"] == str(test_uuid)
+        assert result.metadata["timestamp"] == test_datetime.isoformat()
+        assert result.metadata["amount"] == float(test_decimal)
+        assert result.metadata["nested"]["deep"]["value"] == "test"
+    
+    async def test_get_by_id_without_json_fields(self, mock_connection):
+        """Test get_by_id method with a model that has no JSON fields."""
+        from uuid import uuid4
+        
+        non_json_repo = BaseRepository(
+            db_connection=mock_connection,
+            table_name="simple_table",
+            model_class=NonJSONModel,
+            primary_key="id"
+        )
+        
+        test_id = uuid4()
+        db_result = {
+            "id": test_id,
+            "name": "test",
+            "active": True
+        }
+        
+        non_json_repo.db_connection._cursor.fetchone.return_value = db_result
+        
+        result = await non_json_repo.get_by_id(test_id)
+        
+        assert result is not None
+        assert result.name == "test"
+        assert result.active is True
+        assert result.id == test_id
+    
+    async def test_get_by_id_with_invalid_json_data(self, json_repo):
+        """Test get_by_id method with invalid JSON data (should raise validation error)."""
+        from uuid import uuid4
+        
+        test_id = uuid4()
+        db_result = {
+            "id": test_id,
+            "name": "test_item",
+            "value": 42,
+            "metadata": "invalid json {",  # Invalid JSON will cause Pydantic validation error
+            "tags": '["tag1", "tag2"]',   # Valid JSON should be processed
+            "settings": None
+        }
+        
+        json_repo.db_connection._cursor.fetchone.return_value = db_result
+        
+        # Should raise OperationError due to Pydantic validation failure
+        with pytest.raises(OperationError, match="Failed to get record"):
+            await json_repo.get_by_id(test_id)
+    
+    async def test_get_by_id_with_explicit_json_fields_config(self, mock_connection, sample_model):
+        """Test get_by_id with explicit JSON fields configuration."""
+        # Create repo with explicit JSON fields (subset of actual JSON fields)
+        repo = BaseRepository(
+            db_connection=mock_connection,
+            table_name="test_table",
+            model_class=JSONTestModel,
+            primary_key="id",
+            json_fields={"metadata"},  # Only metadata should be processed as JSON
+            auto_detect_json=False
+        )
+        
+        db_result = {
+            "id": sample_model.id,
+            "name": sample_model.name,
+            "value": sample_model.value,
+            "metadata": '{"key": "value", "number": 123}',  # Should be deserialized
+            "tags": ["tag1", "tag2"],                        # Should remain as-is
+            "settings": {"theme": "dark"}                    # Should remain as-is
+        }
+        
+        repo.db_connection._cursor.fetchone.return_value = db_result
+        
+        result = await repo.get_by_id(sample_model.id)
+        
+        # Only metadata should be deserialized, others should remain as-is
+        assert result.metadata == {"key": "value", "number": 123}  # Deserialized
+        assert result.tags == ["tag1", "tag2"]                     # Unchanged
+        assert result.settings == {"theme": "dark"}                # Unchanged
+    
+    @patch('psycopg_toolkit.repositories.base.logger')
+    async def test_get_by_id_logging_behavior(self, mock_logger, json_repo, sample_model):
+        """Test that get_by_id method logs postprocessing appropriately."""
+        db_result = {
+            "id": sample_model.id,
+            "name": sample_model.name,
+            "value": sample_model.value,
+            "metadata": '{"key": "value", "number": 123}',
+            "tags": '["tag1", "tag2"]',
+            "settings": '{"theme": "dark"}'
+        }
+        
+        json_repo.db_connection._cursor.fetchone.return_value = db_result
+        
+        await json_repo.get_by_id(sample_model.id)
+        
+        # Should log postprocessing
+        debug_calls = [call[0][0] for call in mock_logger.debug.call_args_list]
+        
+        # Should have postprocessing logs
+        assert any("Deserialized JSON field" in call for call in debug_calls)
+        assert any("Postprocessed 3 JSON fields" in call for call in debug_calls)
+    
+    # Tests for get_all() method
+    
+    async def test_get_all_with_json_fields(self, json_repo):
+        """Test get_all method with JSON field postprocessing."""
+        # Mock database results with serialized JSON for multiple records
+        db_results = [
+            {
+                "id": uuid4(),
+                "name": "test_item_1",
+                "value": 10,
+                "metadata": '{"key": "value_1", "number": 1}',
+                "tags": '["tag1_1", "tag1_2"]',
+                "settings": '{"theme": "dark"}'
+            },
+            {
+                "id": uuid4(),
+                "name": "test_item_2", 
+                "value": 20,
+                "metadata": '{"key": "value_2", "number": 2}',
+                "tags": '["tag2_1", "tag2_2"]',
+                "settings": '{"theme": "light"}'
+            },
+            {
+                "id": uuid4(),
+                "name": "test_item_3",
+                "value": 30,
+                "metadata": '{"key": "value_3", "number": 3}',
+                "tags": '["tag3_1", "tag3_2"]',
+                "settings": None
+            }
+        ]
+        
+        json_repo.db_connection._cursor.fetchall.return_value = db_results
+        
+        # Call get_all method
+        results = await json_repo.get_all()
+        
+        # Verify the results
+        assert len(results) == 3
+        
+        for i, result in enumerate(results, 1):
+            assert result.name == f"test_item_{i}"
+            assert result.value == i * 10
+            assert result.metadata == {"key": f"value_{i}", "number": i}  # Should be deserialized
+            assert result.tags == [f"tag{i}_1", f"tag{i}_2"]              # Should be deserialized
+            if i < 3:
+                expected_theme = "dark" if i == 1 else "light"
+                assert result.settings == {"theme": expected_theme}        # Should be deserialized
+            else:
+                assert result.settings is None
+    
+    async def test_get_all_empty_table(self, json_repo):
+        """Test get_all method with empty table."""
+        json_repo.db_connection._cursor.fetchall.return_value = []
+        
+        results = await json_repo.get_all()
+        
+        assert results == []
+    
+    async def test_get_all_database_error(self, json_repo):
+        """Test get_all method when database operation fails."""
+        # Mock database error
+        json_repo.db_connection._cursor.execute.side_effect = Exception("Database connection failed")
+        
+        with pytest.raises(OperationError, match="Failed to get all records"):
+            await json_repo.get_all()
+    
+    async def test_get_all_with_mixed_valid_invalid_json(self, json_repo):
+        """Test get_all method with mix of valid and invalid JSON data."""
+        db_results = [
+            {
+                "id": uuid4(),
+                "name": "test_item_1",
+                "value": 10,
+                "metadata": '{"key": "value_1"}',  # Valid JSON
+                "tags": '["tag1"]',               # Valid JSON
+                "settings": None
+            },
+            {
+                "id": uuid4(),
+                "name": "test_item_2",
+                "value": 20,
+                "metadata": "invalid json {",     # Invalid JSON
+                "tags": '["tag2"]',               # Valid JSON
+                "settings": None
+            }
+        ]
+        
+        json_repo.db_connection._cursor.fetchall.return_value = db_results
+        
+        # Should raise OperationError due to Pydantic validation failure on invalid JSON
+        with pytest.raises(OperationError, match="Failed to get all records"):
+            await json_repo.get_all()
+    
+    async def test_get_all_without_json_fields(self, mock_connection):
+        """Test get_all method with a model that has no JSON fields."""
+        non_json_repo = BaseRepository(
+            db_connection=mock_connection,
+            table_name="simple_table",
+            model_class=NonJSONModel,
+            primary_key="id"
+        )
+        
+        db_results = [
+            {"id": uuid4(), "name": "test_1", "active": True},
+            {"id": uuid4(), "name": "test_2", "active": False},
+            {"id": uuid4(), "name": "test_3", "active": True}
+        ]
+        
+        non_json_repo.db_connection._cursor.fetchall.return_value = db_results
+        
+        results = await non_json_repo.get_all()
+        
+        assert len(results) == 3
+        for i, result in enumerate(results):
+            assert result.name == db_results[i]["name"]
+            assert result.active == db_results[i]["active"]
+            assert result.id == db_results[i]["id"]
+    
+    async def test_get_all_with_complex_json_data(self, json_repo):
+        """Test get_all method with complex JSON data types."""
+        test_uuid = uuid4()
+        test_datetime = datetime.now()
+        test_decimal = Decimal("123.45")
+        
+        db_results = [
+            {
+                "id": uuid4(),
+                "name": "complex_test",
+                "value": 42,
+                "metadata": f'{{"uuid": "{test_uuid}", "timestamp": "{test_datetime.isoformat()}", "amount": {float(test_decimal)}, "nested": {{"deep": {{"value": "test"}}}}}}',
+                "tags": '["tag1", "tag2"]',
+                "settings": None
+            }
+        ]
+        
+        json_repo.db_connection._cursor.fetchall.return_value = db_results
+        
+        results = await json_repo.get_all()
+        
+        assert len(results) == 1
+        result = results[0]
+        
+        # Complex types should be properly deserialized
+        assert result.metadata["uuid"] == str(test_uuid)
+        assert result.metadata["timestamp"] == test_datetime.isoformat()
+        assert result.metadata["amount"] == float(test_decimal)
+        assert result.metadata["nested"]["deep"]["value"] == "test"
+    
+    async def test_get_all_with_explicit_json_fields_config(self, mock_connection):
+        """Test get_all with explicit JSON fields configuration."""
+        # Create repo with explicit JSON fields (subset of actual JSON fields)
+        repo = BaseRepository(
+            db_connection=mock_connection,
+            table_name="test_table",
+            model_class=JSONTestModel,
+            primary_key="id",
+            json_fields={"metadata"},  # Only metadata should be processed as JSON
+            auto_detect_json=False
+        )
+        
+        db_results = [
+            {
+                "id": uuid4(),
+                "name": "test_item",
+                "value": 42,
+                "metadata": '{"key": "value", "number": 123}',  # Should be deserialized
+                "tags": ["tag1", "tag2"],                        # Should remain as-is
+                "settings": {"theme": "dark"}                    # Should remain as-is
+            }
+        ]
+        
+        repo.db_connection._cursor.fetchall.return_value = db_results
+        
+        results = await repo.get_all()
+        
+        assert len(results) == 1
+        result = results[0]
+        
+        # Only metadata should be deserialized, others should remain as-is
+        assert result.metadata == {"key": "value", "number": 123}  # Deserialized
+        assert result.tags == ["tag1", "tag2"]                     # Unchanged
+        assert result.settings == {"theme": "dark"}                # Unchanged
+    
+    @patch('psycopg_toolkit.repositories.base.logger')
+    async def test_get_all_logging_behavior(self, mock_logger, json_repo):
+        """Test that get_all method logs postprocessing appropriately."""
+        db_results = [
+            {
+                "id": uuid4(),
+                "name": "test_item_1",
+                "value": 10,  
+                "metadata": '{"key": "value_1"}',
+                "tags": '["tag1"]',
+                "settings": '{"theme": "dark"}'
+            },
+            {
+                "id": uuid4(),
+                "name": "test_item_2", 
+                "value": 20,
+                "metadata": '{"key": "value_2"}',
+                "tags": '["tag2"]',
+                "settings": None
+            }
+        ]
+        
+        json_repo.db_connection._cursor.fetchall.return_value = db_results
+        
+        await json_repo.get_all()
+        
+        # Should log postprocessing for each record
+        debug_calls = [call[0][0] for call in mock_logger.debug.call_args_list]
+        
+        # Should have postprocessing logs for each record
+        assert any("Deserialized JSON field" in call for call in debug_calls)
+        assert any("Postprocessed 3 JSON fields" in call for call in debug_calls)
+    
+    # Tests for update() method
+    
+    async def test_update_with_json_fields(self, json_repo, sample_model):
+        """Test update method with JSON field preprocessing and postprocessing."""
+        update_data = {
+            "name": "updated_item",
+            "metadata": {"key": "updated_value", "new_field": "added"},
+            "tags": ["new_tag1", "new_tag2", "new_tag3"],
+            "settings": {"theme": "light", "language": "es"}
+        }
+        
+        # Mock database result with serialized JSON
+        db_result = {
+            "id": sample_model.id,
+            "name": "updated_item",
+            "value": sample_model.value,  # Unchanged
+            "metadata": '{"key": "updated_value", "new_field": "added"}',
+            "tags": '["new_tag1", "new_tag2", "new_tag3"]',
+            "settings": '{"theme": "light", "language": "es"}'
+        }
+        
+        json_repo.db_connection._cursor.fetchone.return_value = db_result
+        
+        # Call update method
+        result = await json_repo.update(sample_model.id, update_data)
+        
+        # Verify the result
+        assert result.name == "updated_item"
+        assert result.value == sample_model.value  # Unchanged
+        assert result.metadata == {"key": "updated_value", "new_field": "added"}  # Deserialized
+        assert result.tags == ["new_tag1", "new_tag2", "new_tag3"]              # Deserialized
+        assert result.settings == {"theme": "light", "language": "es"}          # Deserialized
+        
+        # Verify cursor was called with processed data
+        json_repo.db_connection._cursor.execute.assert_called_once()
+        execute_args = json_repo.db_connection._cursor.execute.call_args[0]
+        execute_values = execute_args[1]
+        
+        # The values passed to execute should have JSON fields serialized
+        assert '"key": "updated_value"' in str(execute_values) or '{"key": "updated_value"}' in str(execute_values)
+    
+    async def test_update_partial_json_fields(self, json_repo, sample_model):
+        """Test update method with partial JSON field updates."""
+        # Only update some fields, including some JSON fields
+        update_data = {
+            "name": "partially_updated",
+            "metadata": {"partial": "update"}
+            # Not updating tags or settings
+        }
+        
+        db_result = {
+            "id": sample_model.id,
+            "name": "partially_updated",
+            "value": sample_model.value,
+            "metadata": '{"partial": "update"}',
+            "tags": '["original", "tags"]',      # From existing record
+            "settings": '{"original": "setting"}'  # From existing record
+        }
+        
+        json_repo.db_connection._cursor.fetchone.return_value = db_result
+        
+        result = await json_repo.update(sample_model.id, update_data)
+        
+        assert result.name == "partially_updated"
+        assert result.metadata == {"partial": "update"}     # Updated
+        assert result.tags == ["original", "tags"]          # Not updated
+        assert result.settings == {"original": "setting"}   # Not updated
+    
+    async def test_update_with_none_json_fields(self, json_repo, sample_model):
+        """Test update method with None values in JSON fields."""
+        update_data = {
+            "metadata": {"key": "value"},
+            "tags": ["tag1"],
+            "settings": None  # Setting to None
+        }
+        
+        db_result = {
+            "id": sample_model.id,
+            "name": sample_model.name,
+            "value": sample_model.value,
+            "metadata": '{"key": "value"}',
+            "tags": '["tag1"]',
+            "settings": None
+        }
+        
+        json_repo.db_connection._cursor.fetchone.return_value = db_result
+        
+        result = await json_repo.update(sample_model.id, update_data)
+        
+        assert result.settings is None
+        assert result.metadata == {"key": "value"}
+        assert result.tags == ["tag1"]
+    
+    async def test_update_not_found(self, json_repo):
+        """Test update method when record is not found."""
+        from psycopg_toolkit.exceptions import RecordNotFoundError
+        from uuid import uuid4
+        
+        # Mock no result from database
+        json_repo.db_connection._cursor.fetchone.return_value = None
+        
+        with pytest.raises(RecordNotFoundError):
+            await json_repo.update(uuid4(), {"name": "test"})
+    
+    async def test_update_database_error(self, json_repo):
+        """Test update method when database operation fails."""
+        from uuid import uuid4
+        
+        # Mock database error
+        json_repo.db_connection._cursor.execute.side_effect = Exception("Database connection failed")
+        
+        with pytest.raises(OperationError, match="Failed to update record"):
+            await json_repo.update(uuid4(), {"name": "test"})
+    
+    async def test_update_json_serialization_error(self, json_repo, sample_model):
+        """Test update method when JSON serialization fails."""
+        class NonSerializable:
+            pass
+        
+        update_data = {
+            "metadata": {"bad_data": NonSerializable()}  # This will fail serialization
+        }
+        
+        with pytest.raises(OperationError, match="Failed to update record"):
+            await json_repo.update(sample_model.id, update_data)
+    
+    async def test_update_with_complex_json_data(self, json_repo):
+        """Test update method with complex JSON data types."""
+        from uuid import uuid4
+        from datetime import datetime
+        from decimal import Decimal
+        
+        test_id = uuid4()
+        test_uuid = uuid4()
+        test_datetime = datetime.now()
+        test_decimal = Decimal("456.78")
+        
+        update_data = {
+            "metadata": {
+                "uuid": test_uuid,
+                "timestamp": test_datetime,
+                "amount": test_decimal,
+                "nested": {"deep": {"updated": "value"}}
+            }
+        }
+        
+        db_result = {
+            "id": test_id,
+            "name": "test_item",
+            "value": 42,
+            "metadata": f'{{"uuid": "{test_uuid}", "timestamp": "{test_datetime.isoformat()}", "amount": {float(test_decimal)}, "nested": {{"deep": {{"updated": "value"}}}}}}',
+            "tags": '["tag1"]',
+            "settings": None
+        }
+        
+        json_repo.db_connection._cursor.fetchone.return_value = db_result
+        
+        result = await json_repo.update(test_id, update_data)
+        
+        # Complex types should be properly deserialized
+        assert result.metadata["uuid"] == str(test_uuid)
+        assert result.metadata["timestamp"] == test_datetime.isoformat()
+        assert result.metadata["amount"] == float(test_decimal)
+        assert result.metadata["nested"]["deep"]["updated"] == "value"
+    
+    async def test_update_without_json_fields(self, mock_connection):
+        """Test update method with a model that has no JSON fields."""
+        from uuid import uuid4
+        
+        non_json_repo = BaseRepository(
+            db_connection=mock_connection,
+            table_name="simple_table",
+            model_class=NonJSONModel,
+            primary_key="id"
+        )
+        
+        test_id = uuid4()
+        update_data = {"name": "updated_test", "active": False}
+        
+        db_result = {
+            "id": test_id,
+            "name": "updated_test",
+            "active": False
+        }
+        
+        non_json_repo.db_connection._cursor.fetchone.return_value = db_result
+        
+        result = await non_json_repo.update(test_id, update_data)
+        
+        assert result.name == "updated_test"
+        assert result.active is False
+        assert result.id == test_id
+    
+    async def test_update_preserves_original_data(self, json_repo, sample_model):
+        """Test that update method doesn't modify the original update data."""
+        update_data = {
+            "metadata": {"key": "value"},
+            "tags": ["tag1", "tag2"]
+        }
+        
+        # Store original values
+        original_metadata = update_data["metadata"].copy()
+        original_tags = update_data["tags"].copy()
+        
+        db_result = {
+            "id": sample_model.id,
+            "name": sample_model.name,
+            "value": sample_model.value,
+            "metadata": '{"key": "value"}',
+            "tags": '["tag1", "tag2"]',
+            "settings": None
+        }
+        
+        json_repo.db_connection._cursor.fetchone.return_value = db_result
+        
+        await json_repo.update(sample_model.id, update_data)
+        
+        # Original data should be unchanged
+        assert update_data["metadata"] == original_metadata
+        assert update_data["tags"] == original_tags
+    
+    async def test_update_with_explicit_json_fields_config(self, mock_connection, sample_model):
+        """Test update with explicit JSON fields configuration."""
+        # Create repo with explicit JSON fields (subset of actual JSON fields)
+        repo = BaseRepository(
+            db_connection=mock_connection,
+            table_name="test_table",
+            model_class=JSONTestModel,
+            primary_key="id",
+            json_fields={"metadata"},  # Only metadata should be processed as JSON
+            auto_detect_json=False
+        )
+        
+        update_data = {
+            "metadata": {"key": "updated_value"},
+            "tags": ["new_tag1", "new_tag2"],
+            "settings": {"theme": "updated"}
+        }
+        
+        db_result = {
+            "id": sample_model.id,
+            "name": sample_model.name,
+            "value": sample_model.value,
+            "metadata": '{"key": "updated_value"}',  # Should be deserialized
+            "tags": ["new_tag1", "new_tag2"],       # Should remain as-is
+            "settings": {"theme": "updated"}        # Should remain as-is
+        }
+        
+        repo.db_connection._cursor.fetchone.return_value = db_result
+        
+        result = await repo.update(sample_model.id, update_data)
+        
+        # Only metadata should be deserialized, others should remain as-is
+        assert result.metadata == {"key": "updated_value"}  # Deserialized
+        assert result.tags == ["new_tag1", "new_tag2"]      # Unchanged
+        assert result.settings == {"theme": "updated"}      # Unchanged
+    
+    @patch('psycopg_toolkit.repositories.base.logger')
+    async def test_update_logging_behavior(self, mock_logger, json_repo, sample_model):
+        """Test that update method logs preprocessing and postprocessing appropriately."""
+        update_data = {
+            "metadata": {"key": "updated_value"},
+            "tags": ["new_tag"]
+        }
+        
+        db_result = {
+            "id": sample_model.id,
+            "name": sample_model.name,
+            "value": sample_model.value,
+            "metadata": '{"key": "updated_value"}',
+            "tags": '["new_tag"]',
+            "settings": None
+        }
+        
+        json_repo.db_connection._cursor.fetchone.return_value = db_result
+        
+        await json_repo.update(sample_model.id, update_data)
+        
+        # Should log preprocessing and postprocessing
+        debug_calls = [call[0][0] for call in mock_logger.debug.call_args_list]
+        
+        # Should have preprocessing logs
+        assert any("Serialized JSON field" in call for call in debug_calls)
+        assert any("Preprocessed 3 JSON fields" in call for call in debug_calls)
+        
+        # Should have postprocessing logs
+        assert any("Deserialized JSON field" in call for call in debug_calls)
+        assert any("Postprocessed 3 JSON fields" in call for call in debug_calls)

@@ -20,6 +20,7 @@ class DatabaseSettings:
         pool_timeout (int): Maximum time in seconds to wait for a connection (default: 30)
         connection_timeout (float): Connection establishment timeout in seconds (default: 5.0)
         statement_timeout (Optional[float]): SQL statement execution timeout in seconds (default: None)
+        enable_json_adapters (bool): Whether to enable psycopg JSON adapters for JSONB support (default: True)
     """
 
     host: str
@@ -32,6 +33,7 @@ class DatabaseSettings:
     pool_timeout: int = 30
     connection_timeout: float = 5.0
     statement_timeout: Optional[float] = None
+    enable_json_adapters: bool = True
 
     @property
     def connection_string(self) -> str:
@@ -91,5 +93,6 @@ class DatabaseSettings:
             'max_pool_size': self.max_pool_size,
             'pool_timeout': self.pool_timeout,
             'connection_timeout': self.connection_timeout,
-            'statement_timeout': self.statement_timeout
+            'statement_timeout': self.statement_timeout,
+            'enable_json_adapters': self.enable_json_adapters
         }

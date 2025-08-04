@@ -5,6 +5,7 @@ from typing import AsyncGenerator, Callable, List, Optional, Awaitable, Any
 import psycopg
 from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
+from psycopg.types import json
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from .config import DatabaseSettings
@@ -47,6 +48,30 @@ class Database:
         self._pool: Optional[AsyncConnectionPool] = None
         self._init_callbacks: List[Callable[[AsyncConnectionPool], Awaitable[None]]] = []
         self._transaction_manager = None
+
+    def _configure_json_adapters(self, connection: AsyncConnection) -> None:
+        """Configure psycopg JSON adapters for JSONB support.
+        
+        This method sets up automatic JSON/JSONB handling using psycopg's built-in 
+        JSON adapters, which provide seamless conversion between Python objects 
+        and PostgreSQL JSON/JSONB data types.
+        
+        Args:
+            connection: The database connection to configure
+            
+        Note:
+            This is called automatically when enable_json_adapters is True in settings.
+            The adapters handle serialization/deserialization transparently at the 
+            driver level, which can be more efficient than manual processing.
+        """
+        if self._settings.enable_json_adapters:
+            logger.debug("Configuring JSON adapters for connection")
+            # Set up JSON adapters to handle JSONB columns automatically
+            json.set_json_loads(loads=json.json.loads, context=connection)
+            json.set_json_dumps(dumps=json.json.dumps, context=connection)
+            logger.debug("JSON adapters configured successfully")
+        else:
+            logger.debug("JSON adapters disabled in settings")
 
     @retry(
         stop=stop_after_attempt(5),
@@ -134,7 +159,7 @@ class Database:
 
     @asynccontextmanager
     async def connection(self) -> AsyncGenerator[AsyncConnection, None]:
-        """Get database connection with configured statement timeout.
+        """Get database connection with configured statement timeout and JSON adapters.
 
         Yields:
             AsyncConnection: Database connection
@@ -144,6 +169,9 @@ class Database:
         """
         pool = await self.get_pool()
         async with pool.connection() as conn:
+            # Configure JSON adapters if enabled
+            self._configure_json_adapters(conn)
+            
             if self._settings.statement_timeout:
                 await conn.execute(
                     f"SET statement_timeout = {int(self._settings.statement_timeout * 1000)}"
@@ -226,17 +254,20 @@ class Database:
         if not self._transaction_manager:
             from .transaction import TransactionManager
             pool = await self.get_pool()
-            self._transaction_manager = TransactionManager(pool)
+            self._transaction_manager = TransactionManager(pool, self._configure_json_adapters)
         return self._transaction_manager
 
     @asynccontextmanager
     async def transaction(self) -> AsyncGenerator[AsyncConnection, None]:
-        """Get connection with transaction context.
+        """Get connection with transaction context and JSON adapters.
 
         Yields:
             AsyncConnection: Database connection in transaction
         """
         pool = await self.get_pool()
         async with pool.connection() as conn:
+            # Configure JSON adapters if enabled
+            self._configure_json_adapters(conn)
+            
             async with conn.transaction():
                 yield conn

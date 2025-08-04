@@ -135,7 +135,8 @@ async def test_get_pool_new(database):
 
 
 @pytest.mark.asyncio
-async def test_connection_manager(database, mock_pool):
+@patch('psycopg_toolkit.core.database.json')
+async def test_connection_manager(mock_json, database, mock_pool):
     database._pool = mock_pool
     mock_pool.closed = False
     async with database.connection() as conn:
