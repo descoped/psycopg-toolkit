@@ -1,5 +1,11 @@
 # Psycopg Toolkit
 
+[![Build Status](https://github.com/descoped/psycopg-toolkit/actions/workflows/build-test.yml/badge.svg)](https://github.com/descoped/psycopg-toolkit/actions/workflows/build-test-native.yml)
+[![Coverage](https://codecov.io/gh/descoped/psycopg-toolkit/branch/master/graph/badge.svg)](https://codecov.io/gh/descoped/psycopg-toolkit)
+[![Python Version](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Release](https://img.shields.io/github/v/release/descoped/psycopg-toolkit)](https://github.com/descoped/psycopg-toolkit/releases)
+
 A robust PostgreSQL database toolkit providing enterprise-grade connection pooling and database management capabilities for Python applications.
 
 ## Features
@@ -205,11 +211,11 @@ except RecordNotFoundError:
 ## Running Tests
 
 ```bash
-# Install test dependencies
-poetry install --with test
+# Install dependencies
+uv sync --all-groups
 
 # Run tests
-poetry run pytest
+uv run pytest
 ```
 
 ## Contributing
