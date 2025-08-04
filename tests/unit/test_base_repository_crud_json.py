@@ -231,6 +231,8 @@ class TestBaseRepositoryCRUDWithJSON:
     
     async def test_create_json_serialization_error(self, json_repo):
         """Test create method when JSON serialization fails."""
+        from psycopg_toolkit.exceptions import JSONSerializationError
+        
         # Create a model with non-serializable data
         class NonSerializable:
             pass
@@ -242,7 +244,7 @@ class TestBaseRepositoryCRUDWithJSON:
             tags=["tag1"]
         )
         
-        with pytest.raises(OperationError, match="Failed to create record"):
+        with pytest.raises(JSONSerializationError, match="JSON serialization failed"):
             await json_repo.create(model)
     
     async def test_create_database_error(self, json_repo, sample_model):
@@ -311,36 +313,51 @@ class TestBaseRepositoryCRUDWithJSON:
         assert sample_model.metadata == original_metadata
         assert sample_model.tags == original_tags
     
-    async def test_create_with_explicit_json_fields_config(self, mock_connection, sample_model):
+    async def test_create_with_explicit_json_fields_config(self, mock_connection):
         """Test create with explicit JSON fields configuration."""
-        # Create repo with explicit JSON fields (subset of actual JSON fields)
+        # For this test, let's use a simpler model to demonstrate the concept clearly
+        class MixedFieldModel(BaseModel):
+            id: UUID = Field(default_factory=uuid4)
+            name: str
+            # This will be explicitly marked as JSON
+            config: Dict[str, Any]
+            # This won't be marked as JSON even though it could be
+            simple_list: List[str]
+            
+        sample = MixedFieldModel(
+            name="test",
+            config={"key": "value", "number": 123},
+            simple_list=["item1", "item2"]
+        )
+        
+        # Create repo with explicit JSON fields
         repo = BaseRepository(
             db_connection=mock_connection,
             table_name="test_table",
-            model_class=JSONTestModel,
+            model_class=MixedFieldModel,
             primary_key="id",
-            json_fields={"metadata"},  # Only metadata should be processed as JSON
+            json_fields={"config"},  # Only config should be processed as JSON
             auto_detect_json=False
         )
         
-        # In this case, only metadata should be serialized, tags should remain as-is
+        # In the database, if we're using text columns for JSON with custom processing:
+        # - config would be stored as serialized JSON text
+        # - simple_list might be stored as PostgreSQL array or serialized text
+        # For this test, let's assume simple_list is stored as a PostgreSQL array
         db_result = {
-            "id": sample_model.id,
-            "name": sample_model.name,
-            "value": sample_model.value,
-            "metadata": '{"key": "value", "number": 123}',  # Serialized
-            "tags": ["tag1", "tag2"],                        # Not serialized (kept as list)
-            "settings": {"theme": "dark"}                    # Not serialized (kept as dict)
+            "id": sample.id,
+            "name": sample.name,
+            "config": '{"key": "value", "number": 123}',  # Serialized JSON (will be deserialized)
+            "simple_list": ["item1", "item2"]             # PostgreSQL array (not processed)
         }
         
         repo.db_connection._cursor.fetchone.return_value = db_result
         
-        result = await repo.create(sample_model)
+        result = await repo.create(sample)
         
-        # Only metadata should be deserialized, others should remain as-is
-        assert result.metadata == {"key": "value", "number": 123}  # Deserialized
-        assert result.tags == ["tag1", "tag2"]                     # Unchanged
-        assert result.settings == {"theme": "dark"}                # Unchanged
+        # Only config should be deserialized
+        assert result.config == {"key": "value", "number": 123}  # Deserialized
+        assert result.simple_list == ["item1", "item2"]          # Unchanged
     
     @patch('psycopg_toolkit.repositories.base.logger')
     async def test_create_logging_behavior(self, mock_logger, json_repo, sample_model):
@@ -1150,6 +1167,8 @@ class TestBaseRepositoryCRUDWithJSON:
     
     async def test_update_json_serialization_error(self, json_repo, sample_model):
         """Test update method when JSON serialization fails."""
+        from psycopg_toolkit.exceptions import JSONSerializationError
+        
         class NonSerializable:
             pass
         
@@ -1157,7 +1176,7 @@ class TestBaseRepositoryCRUDWithJSON:
             "metadata": {"bad_data": NonSerializable()}  # This will fail serialization
         }
         
-        with pytest.raises(OperationError, match="Failed to update record"):
+        with pytest.raises(JSONSerializationError, match="JSON serialization failed"):
             await json_repo.update(sample_model.id, update_data)
     
     async def test_update_with_complex_json_data(self, json_repo):

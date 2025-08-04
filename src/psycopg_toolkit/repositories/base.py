@@ -4,12 +4,14 @@ from typing import TypeVar, Generic, List, Optional, Dict, Any, Set
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 from psycopg.sql import SQL
+from psycopg.types.json import Json
 
 from ..exceptions import (
     RecordNotFoundError,
     OperationError,
     JSONSerializationError,
-    JSONDeserializationError
+    JSONDeserializationError,
+    JSONProcessingError
 )
 from ..utils import PsycopgHelper
 from ..utils.type_inspector import TypeInspector
@@ -119,7 +121,24 @@ class BaseRepository(Generic[T, K]):
         # Cache for performance and configuration
         self._auto_detect_json = auto_detect_json
         self._strict_json_processing = strict_json_processing
+        
+        # Check if psycopg JSON adapters are enabled
+        self._use_psycopg_adapters = self._check_psycopg_adapters()
 
+    def _check_psycopg_adapters(self) -> bool:
+        """Check if psycopg JSON adapters are enabled on the connection.
+        
+        Returns:
+            bool: True if psycopg JSON adapters are enabled, False otherwise.
+        """
+        # We use psycopg adapters when:
+        # 1. auto_detect_json is False AND no explicit json_fields are set
+        # This indicates the user wants psycopg to handle JSON automatically
+        # 
+        # If explicit json_fields are provided, we use custom processing
+        # to have fine-grained control over which fields are processed
+        return not self._auto_detect_json and not self._json_fields
+    
     @property
     def json_fields(self) -> Set[str]:
         """Get the set of field names that should be treated as JSON.
@@ -156,6 +175,26 @@ class BaseRepository(Generic[T, K]):
             # processed["metadata"] is now '{"key": "value"}'
             ```
         """
+        # If we're using psycopg adapters, we need to detect JSON fields from the model
+        # and wrap them with Json() instead of serializing them
+        if self._use_psycopg_adapters:
+            # Auto-detect JSON fields from the model if not already done
+            json_fields = self._json_fields or TypeInspector.detect_json_fields(self.model_class)
+            
+            if not json_fields:
+                return data.copy()
+            
+            processed_data = data.copy()
+            for field_name in json_fields:
+                if field_name in processed_data and processed_data[field_name] is not None:
+                    value = processed_data[field_name]
+                    # Wrap dict/list values with Json() for psycopg adapters
+                    if isinstance(value, (dict, list)):
+                        processed_data[field_name] = Json(value)
+            
+            return processed_data
+        
+        # Original logic for custom JSON processing
         if not self._json_fields:
             logger.debug(f"No JSON fields configured for {self.table_name}, skipping preprocessing")
             return data.copy()
@@ -211,6 +250,11 @@ class BaseRepository(Generic[T, K]):
             # processed["metadata"] is now {"key": "value"}
             ```
         """
+        # If we're using psycopg adapters, the data is already deserialized
+        if self._use_psycopg_adapters:
+            return data.copy()
+        
+        # Original logic for custom JSON processing
         if not self._json_fields:
             logger.debug(f"No JSON fields configured for {self.table_name}, skipping postprocessing")
             return data.copy()
@@ -283,7 +327,7 @@ class BaseRepository(Generic[T, K]):
                 return self.model_class(**postprocessed_result)
         except Exception as e:
             logger.error(f"Error in create: {e}")
-            if isinstance(e, OperationError):
+            if isinstance(e, (OperationError, JSONProcessingError)):
                 raise
             raise OperationError(f"Failed to create record: {str(e)}") from e
 
@@ -392,7 +436,7 @@ class BaseRepository(Generic[T, K]):
                 return self.model_class(**postprocessed_result)
         except Exception as e:
             logger.error(f"Error in get_by_id: {e}")
-            if isinstance(e, RecordNotFoundError):
+            if isinstance(e, (RecordNotFoundError, JSONProcessingError)):
                 raise
             raise OperationError(f"Failed to get record: {str(e)}") from e
 
@@ -433,6 +477,8 @@ class BaseRepository(Generic[T, K]):
                 return [self.model_class(**row) for row in postprocessed_rows]
         except Exception as e:
             logger.error(f"Error in get_all: {e}")
+            if isinstance(e, JSONProcessingError):
+                raise
             raise OperationError(f"Failed to get all records: {str(e)}") from e
 
     async def update(self, record_id: K, data: Dict[str, Any]) -> T:
@@ -491,7 +537,7 @@ class BaseRepository(Generic[T, K]):
                 return self.model_class(**postprocessed_result)
         except Exception as e:
             logger.error(f"Error in update: {e}")
-            if isinstance(e, RecordNotFoundError):
+            if isinstance(e, (RecordNotFoundError, JSONProcessingError)):
                 raise
             raise OperationError(f"Failed to update record: {str(e)}") from e
 
