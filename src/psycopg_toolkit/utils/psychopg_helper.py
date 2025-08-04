@@ -10,14 +10,14 @@ Key security features:
 - Uses psycopg.sql.Placeholder for parameter values
 """
 
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 from psycopg.sql import SQL, Identifier, Placeholder
 
 
 class PsycopgHelper:
     @staticmethod
-    def get_columns(keys: Dict[str, Any]) -> List[Identifier]:
+    def get_columns(keys: dict[str, Any]) -> list[Identifier]:
         """
         Convert dictionary keys to a list of SQL Identifiers for safe column name handling.
 
@@ -30,7 +30,7 @@ class PsycopgHelper:
         return [Identifier(k) for k in keys]
 
     @staticmethod
-    def get_columns_as_list(keys: Dict[str, Any]) -> List[str]:
+    def get_columns_as_list(keys: dict[str, Any]) -> list[str]:
         """
         Convert dictionary keys to a list of column names as strings.
 
@@ -40,10 +40,10 @@ class PsycopgHelper:
         Returns:
             List of column names as strings
         """
-        return [k for k in keys]
+        return list(keys)
 
     @staticmethod
-    def get_placeholders(count: int) -> List[Placeholder]:
+    def get_placeholders(count: int) -> list[Placeholder]:
         """
         Generate a list of SQL placeholders for parameterized queries.
 
@@ -57,9 +57,7 @@ class PsycopgHelper:
 
     @staticmethod
     def build_select_query(
-            table_name: str,
-            columns: Optional[List[str]] = None,
-            where_clause: Optional[Dict[str, Any]] = None
+        table_name: str, columns: list[str] | None = None, where_clause: dict[str, Any] | None = None
     ) -> SQL:
         """
         Build a safe SELECT query with optional column selection and WHERE clause.
@@ -72,31 +70,22 @@ class PsycopgHelper:
         Returns:
             SQL object representing the parameterized query
         """
-        select_columns = SQL('*') if not columns else SQL(', ').join(map(Identifier, columns))
+        select_columns = SQL("*") if not columns else SQL(", ").join(map(Identifier, columns))
 
         if where_clause:
-            conditions = SQL(' AND ').join([
-                SQL("{} = {}").format(Identifier(k), Placeholder())
-                for k in where_clause.keys()
-            ])
+            conditions = SQL(" AND ").join(
+                [SQL("{} = {}").format(Identifier(k), Placeholder()) for k in where_clause]
+            )
             where_sql = SQL(" WHERE {}").format(conditions)
         else:
             where_sql = SQL("")
 
-        query = SQL("SELECT {} FROM {}{}").format(
-            select_columns,
-            Identifier(table_name),
-            where_sql
-        )
+        query = SQL("SELECT {} FROM {}{}").format(select_columns, Identifier(table_name), where_sql)
 
         return query
 
     @staticmethod
-    def build_insert_query(
-            table_name: str,
-            data: Dict[str, Any],
-            batch_size: int = 1
-    ) -> SQL:
+    def build_insert_query(table_name: str, data: dict[str, Any], batch_size: int = 1) -> SQL:
         """
         Build a safe INSERT query, supporting batch inserts.
 
@@ -118,22 +107,14 @@ class PsycopgHelper:
         batch_placeholders = []
         for _ in range(batch_size):
             placeholders = PsycopgHelper.get_placeholders(len(data))
-            batch_placeholders.append(
-                SQL('({})').format(SQL(', ').join(placeholders))
-            )
+            batch_placeholders.append(SQL("({})").format(SQL(", ").join(placeholders)))
 
         return SQL("INSERT INTO {} ({}) VALUES {}").format(
-            Identifier(table_name),
-            SQL(', ').join(columns),
-            SQL(', ').join(batch_placeholders)
+            Identifier(table_name), SQL(", ").join(columns), SQL(", ").join(batch_placeholders)
         )
 
     @staticmethod
-    def build_update_query(
-            table_name: str,
-            data: Dict[str, Any],
-            where_clause: Dict[str, Any]
-    ) -> SQL:
+    def build_update_query(table_name: str, data: dict[str, Any], where_clause: dict[str, Any]) -> SQL:
         """
         Build a safe UPDATE query with SET and WHERE clauses.
 
@@ -151,27 +132,16 @@ class PsycopgHelper:
                                                          {"id": 1})
             >>> cur.execute(query, list(data.values()) + list(where_clause.values()))
         """
-        set_items = SQL(', ').join([
-            SQL("{} = {}").format(Identifier(k), Placeholder())
-            for k in data.keys()
-        ])
+        set_items = SQL(", ").join([SQL("{} = {}").format(Identifier(k), Placeholder()) for k in data])
 
-        where_conditions = SQL(' AND ').join([
-            SQL("{} = {}").format(Identifier(k), Placeholder())
-            for k in where_clause.keys()
-        ])
-
-        return SQL("UPDATE {} SET {} WHERE {}").format(
-            Identifier(table_name),
-            set_items,
-            where_conditions
+        where_conditions = SQL(" AND ").join(
+            [SQL("{} = {}").format(Identifier(k), Placeholder()) for k in where_clause]
         )
 
+        return SQL("UPDATE {} SET {} WHERE {}").format(Identifier(table_name), set_items, where_conditions)
+
     @staticmethod
-    def build_delete_query(
-            table_name: str,
-            where_clause: Dict[str, Any]
-    ) -> SQL:
+    def build_delete_query(table_name: str, where_clause: dict[str, Any]) -> SQL:
         """
         Build a safe DELETE query with WHERE clause.
 
@@ -186,12 +156,6 @@ class PsycopgHelper:
             >>> query = PsycopgHelper.build_delete_query("users", {"id": 1})
             >>> cur.execute(query, list(where_clause.values()))
         """
-        conditions = SQL(' AND ').join([
-            SQL("{} = {}").format(Identifier(k), Placeholder())
-            for k in where_clause.keys()
-        ])
+        conditions = SQL(" AND ").join([SQL("{} = {}").format(Identifier(k), Placeholder()) for k in where_clause])
 
-        return SQL("DELETE FROM {} WHERE {}").format(
-            Identifier(table_name),
-            conditions
-        )
+        return SQL("DELETE FROM {} WHERE {}").format(Identifier(table_name), conditions)

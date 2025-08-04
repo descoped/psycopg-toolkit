@@ -1,22 +1,19 @@
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import TypeVar, Generic, AsyncGenerator, Optional, Callable
+from typing import Generic, TypeVar
 
 from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
 
-from ..exceptions import (
-    DatabaseConnectionError,
-    DatabaseNotAvailable,
-    DatabasePoolError
-)
+from ..exceptions import DatabaseConnectionError, DatabaseNotAvailable, DatabasePoolError
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar('T')  # Schema type
-D = TypeVar('D')  # Data type
+T = TypeVar("T")  # Schema type
+D = TypeVar("D")  # Data type
 
 
 class SchemaManager(ABC, Generic[T]):
@@ -83,8 +80,9 @@ class TransactionContext:
         conn: Database connection
         savepoint_name: Optional savepoint identifier
     """
+
     conn: AsyncConnection
-    savepoint_name: Optional[str] = None
+    savepoint_name: str | None = None
 
     async def __aenter__(self):
         """Enter transaction context, creating savepoint if specified.
@@ -113,7 +111,9 @@ class TransactionManager:
         json_adapter_configurator: Optional function to configure JSON adapters
     """
 
-    def __init__(self, pool: AsyncConnectionPool, json_adapter_configurator: Optional[Callable[[AsyncConnection], None]] = None):
+    def __init__(
+        self, pool: AsyncConnectionPool, json_adapter_configurator: Callable[[AsyncConnection], None] | None = None
+    ):
         """Initialize with connection pool and optional JSON adapter configurator.
 
         Args:
@@ -124,7 +124,7 @@ class TransactionManager:
         self._json_adapter_configurator = json_adapter_configurator
 
     @asynccontextmanager
-    async def transaction(self, savepoint: Optional[str] = None) -> AsyncGenerator[AsyncConnection, None]:
+    async def transaction(self, savepoint: str | None = None) -> AsyncGenerator[AsyncConnection, None]:
         """Context manager for database transactions with optional savepoint.
 
         Args:
@@ -141,7 +141,7 @@ class TransactionManager:
                 # Configure JSON adapters if provided
                 if self._json_adapter_configurator:
                     self._json_adapter_configurator(conn)
-                
+
                 async with conn.transaction():
                     if savepoint:
                         async with TransactionContext(conn, savepoint):
@@ -150,9 +150,9 @@ class TransactionManager:
                         yield conn
         except Exception as e:
             logger.error(f"Transaction failed: {e}")
-            if isinstance(e, (DatabaseConnectionError, DatabaseNotAvailable, DatabasePoolError)):
+            if isinstance(e, DatabaseConnectionError | DatabaseNotAvailable | DatabasePoolError):
                 raise
-            raise DatabaseConnectionError("Transaction failed", e)
+            raise DatabaseConnectionError("Transaction failed", e) from e
 
     @asynccontextmanager
     async def with_schema(self, schema_manager: SchemaManager[T]) -> AsyncGenerator[T, None]:
@@ -202,9 +202,7 @@ class TransactionManager:
 
     @asynccontextmanager
     async def managed_transaction(
-            self,
-            schema_manager: Optional[SchemaManager[T]] = None,
-            data_manager: Optional[DataManager[D]] = None
+        self, schema_manager: SchemaManager[T] | None = None, data_manager: DataManager[D] | None = None
     ) -> AsyncGenerator[AsyncConnection, None]:
         """Combined context manager for schema and data operations.
 
@@ -218,17 +216,15 @@ class TransactionManager:
         if schema_manager:
             async with self.with_schema(schema_manager):
                 if data_manager:
-                    async with self.with_test_data(data_manager):
-                        async with self.transaction() as conn:
-                            yield conn
+                    async with self.with_test_data(data_manager), self.transaction() as conn:
+                        yield conn
                 else:
                     async with self.transaction() as conn:
                         yield conn
         else:
             if data_manager:
-                async with self.with_test_data(data_manager):
-                    async with self.transaction() as conn:
-                        yield conn
+                async with self.with_test_data(data_manager), self.transaction() as conn:
+                    yield conn
             else:
                 async with self.transaction() as conn:
                     yield conn

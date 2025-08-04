@@ -25,8 +25,10 @@ This is **psycopg-toolkit**, a robust PostgreSQL database toolkit for Python app
   - Integration tests: `uv run pytest tests/integration`
   - Edge cases: `uv run pytest tests/edge_cases`
   - Performance: `uv run pytest tests/performance`
+  - JSONB tests: `uv run pytest tests/test_jsonb.py -v`
 - **Build package**: `uv build`
-- **Lint code**: `uv run flake8`
+- **Lint code**: `uv run ruff check`
+- **Format code**: `uv run ruff format`
 
 ### Testing
 - Tests use pytest with asyncio support
@@ -36,7 +38,7 @@ This is **psycopg-toolkit**, a robust PostgreSQL database toolkit for Python app
   - `tests/integration/` - Database integration tests
   - `tests/edge_cases/` - Edge case and error handling tests
   - `tests/performance/` - Performance benchmarks
-- JSONB test schema: `python tests/schema/manage_test_schema.py setup`
+- JSONB test schema: `uv run python tests/schema/manage_test_schema.py setup`
 
 ## Architecture
 

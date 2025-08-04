@@ -148,6 +148,8 @@ extend-exclude = [
     ".env",
     "htmlcov",
 ]
+# Enable unsafe fixes by default
+unsafe-fixes = true
 
 [tool.ruff.lint]
 select = [
@@ -163,6 +165,9 @@ select = [
     "T20", # flake8-print
     "SIM", # flake8-simplify
     "RUF", # Ruff-specific rules
+    "C90", # mccabe complexity
+    "PTH", # flake8-use-pathlib
+    "TCH", # flake8-type-checking
 ]
 ignore = [
     "E501",   # Line too long (handled by formatter)
@@ -171,7 +176,14 @@ ignore = [
     "B017",   # Assert raises on Exception - sometimes needed for testing
     "T201",   # Print found (allow print statements)
     "RUF012", # Mutable class attributes should be annotated with `typing.ClassVar`
+    "TC001", # Move typing imports to TYPE_CHECKING block (can cause issues with Pydantic)
+    "TC002", # Move third-party imports to TYPE_CHECKING block (can cause issues with Pydantic)
+    "TC003", # Move standard library imports to TYPE_CHECKING block (can cause issues with Pydantic)
+    "N818",   # Exception name should be named with an Error suffix (backwards compatibility)
 ]
+# Automatically fix even unsafe fixes
+fixable = ["ALL"]
+unfixable = []
 
 [tool.ruff.lint.isort]
 known-first-party = ["fastapi_testing"]
@@ -181,6 +193,14 @@ split-on-trailing-comma = true
 
 [tool.ruff.lint.pyupgrade]
 keep-runtime-typing = true
+
+[tool.ruff.lint.pep8-naming]
+# Allow Pydantic's model_* attributes
+ignore-names = ["model_*"]
+
+[tool.ruff.lint.mccabe]
+# Maximum McCabe complexity
+max-complexity = 10
 
 [tool.ruff.format]
 quote-style = "double"

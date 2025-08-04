@@ -7,7 +7,7 @@ from psycopg import AsyncConnection, Cursor
 from psycopg_pool import AsyncConnectionPool
 from pydantic import BaseModel
 
-from psycopg_toolkit.exceptions import RecordNotFoundError, OperationError
+from psycopg_toolkit.exceptions import OperationError, RecordNotFoundError
 from psycopg_toolkit.repositories.base import BaseRepository
 
 
@@ -21,12 +21,7 @@ class User(BaseModel):
 # Repository Implementation
 class UserRepository(BaseRepository[User, UUID]):
     def __init__(self, db_connection: AsyncConnection):
-        super().__init__(
-            db_connection=db_connection,
-            table_name="users",
-            model_class=User,
-            primary_key="id"
-        )
+        super().__init__(db_connection=db_connection, table_name="users", model_class=User, primary_key="id")
 
 
 class AsyncCursorContextManager:
@@ -97,11 +92,7 @@ def user_id():
 
 @pytest.fixture
 def user_data(user_id):
-    return {
-        "id": user_id,
-        "username": "johndoe",
-        "fullname": "John Doe"
-    }
+    return {"id": user_id, "username": "johndoe", "fullname": "John Doe"}
 
 
 @pytest.fixture

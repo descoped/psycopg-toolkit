@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from typing import Any
 
 
 @dataclass
@@ -32,7 +32,7 @@ class DatabaseSettings:
     max_pool_size: int = 20
     pool_timeout: int = 30
     connection_timeout: float = 5.0
-    statement_timeout: Optional[float] = None
+    statement_timeout: float | None = None
     enable_json_adapters: bool = True
 
     @property
@@ -44,7 +44,7 @@ class DatabaseSettings:
         """
         return self.get_connection_string()
 
-    def get_connection_string(self, timeout: Optional[float] = None) -> str:
+    def get_connection_string(self, timeout: float | None = None) -> str:
         """Generate a PostgreSQL connection string with optional timeout override.
 
         Args:
@@ -53,18 +53,12 @@ class DatabaseSettings:
         Returns:
             str: Formatted connection string for psycopg
         """
-        conn_str = (
-            f"host={self.host} "
-            f"port={self.port} "
-            f"dbname={self.dbname} "
-            f"user={self.user} "
-            f"password={self.password}"
-        )
+        conn_str = f"host={self.host} port={self.port} dbname={self.dbname} user={self.user} password={self.password}"
         if timeout:
             conn_str += f" connect_timeout={int(timeout)}"
         return conn_str
 
-    def to_dict(self, connection_only: bool = True) -> Dict[str, Any]:
+    def to_dict(self, connection_only: bool = True) -> dict[str, Any]:
         """Convert settings to a dictionary.
 
         Args:
@@ -76,23 +70,23 @@ class DatabaseSettings:
         """
         if connection_only:
             return {
-                'host': self.host,
-                'port': self.port,
-                'dbname': self.dbname,
-                'user': self.user,
-                'password': self.password
+                "host": self.host,
+                "port": self.port,
+                "dbname": self.dbname,
+                "user": self.user,
+                "password": self.password,
             }
 
         return {
-            'host': self.host,
-            'port': self.port,
-            'dbname': self.dbname,
-            'user': self.user,
-            'password': self.password,
-            'min_pool_size': self.min_pool_size,
-            'max_pool_size': self.max_pool_size,
-            'pool_timeout': self.pool_timeout,
-            'connection_timeout': self.connection_timeout,
-            'statement_timeout': self.statement_timeout,
-            'enable_json_adapters': self.enable_json_adapters
+            "host": self.host,
+            "port": self.port,
+            "dbname": self.dbname,
+            "user": self.user,
+            "password": self.password,
+            "min_pool_size": self.min_pool_size,
+            "max_pool_size": self.max_pool_size,
+            "pool_timeout": self.pool_timeout,
+            "connection_timeout": self.connection_timeout,
+            "statement_timeout": self.statement_timeout,
+            "enable_json_adapters": self.enable_json_adapters,
         }
