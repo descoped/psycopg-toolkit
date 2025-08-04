@@ -2,7 +2,7 @@
 
 import json
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, time
 from decimal import Decimal
 from typing import Any, Union
 from uuid import UUID
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class CustomJSONEncoder(json.JSONEncoder):
     """Custom JSON encoder for common Python types.
     
-    Handles serialization of UUID, datetime, date, Decimal, set, and Pydantic models
+    Handles serialization of UUID, datetime, date, time, Decimal, set, frozenset, and Pydantic models
     that are commonly used in applications but not natively JSON serializable.
     """
     
@@ -31,11 +31,15 @@ class CustomJSONEncoder(json.JSONEncoder):
         """
         if isinstance(obj, UUID):
             return str(obj)
-        elif isinstance(obj, (datetime, date)):
+        elif isinstance(obj, datetime):
+            return obj.isoformat()
+        elif isinstance(obj, date):
+            return obj.isoformat()
+        elif isinstance(obj, time):
             return obj.isoformat()
         elif isinstance(obj, Decimal):
             return float(obj)
-        elif isinstance(obj, set):
+        elif isinstance(obj, (set, frozenset)):
             return list(obj)
         elif hasattr(obj, 'model_dump'):  # Pydantic model
             return obj.model_dump()
@@ -65,7 +69,7 @@ class JSONHandler:
             ValueError: If the serialization fails with descriptive error message
         """
         try:
-            return json.dumps(data, cls=CustomJSONEncoder, ensure_ascii=False)
+            return json.dumps(data, cls=CustomJSONEncoder, ensure_ascii=False, allow_nan=False)
         except (TypeError, ValueError, OverflowError) as e:
             logger.error(f"JSON serialization failed for data type {type(data).__name__}: {e}")
             raise ValueError(f"Cannot serialize to JSON: {e}") from e
