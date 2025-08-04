@@ -9,15 +9,28 @@ from .exceptions import (
     RepositoryError,
     RecordNotFoundError,
     InvalidDataError,
-    OperationError
+    OperationError,
+    JSONProcessingError,
+    JSONSerializationError,
+    JSONDeserializationError
 )
 from .repositories.base import BaseRepository
+from .utils.json_handler import JSONHandler, CustomJSONEncoder
+from .utils.type_inspector import TypeInspector
 
 __all__ = [
+    # Core Database Components
     "Database",
-    "DatabaseSettings",
+    "DatabaseSettings", 
     "TransactionManager",
     "BaseRepository",
+    
+    # JSON/JSONB Support
+    "JSONHandler",
+    "TypeInspector", 
+    "CustomJSONEncoder",
+    
+    # Base Exceptions
     "PsycoDBException",
     "DatabaseConnectionError",
     "DatabasePoolError",
@@ -26,5 +39,9 @@ __all__ = [
     "RecordNotFoundError",
     "InvalidDataError",
     "OperationError",
-
+    
+    # JSON Exceptions
+    "JSONProcessingError",
+    "JSONSerializationError",
+    "JSONDeserializationError",
 ]

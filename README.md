@@ -7,6 +7,7 @@ A robust PostgreSQL database toolkit providing enterprise-grade connection pooli
 - Async-first design with connection pooling via `psycopg-pool`
 - Comprehensive transaction management with savepoint support
 - Type-safe repository pattern with Pydantic model validation
+- **JSONB support** with automatic field detection and psycopg JSON adapters
 - SQL query builder with SQL injection protection
 - Database schema and test data lifecycle management
 - Automatic retry mechanism with exponential backoff
@@ -111,6 +112,45 @@ async with tm.transaction() as conn:
     user = await repo.get_by_id(user_id)
 ```
 
+### JSONB Support
+
+```python
+from typing import Dict, List, Any
+from pydantic import BaseModel
+from psycopg_toolkit import BaseRepository
+
+class UserProfile(BaseModel):
+    id: int
+    name: str
+    # These fields are automatically detected as JSONB
+    metadata: Dict[str, Any]
+    preferences: Dict[str, str]
+    tags: List[str]
+
+class UserRepository(BaseRepository[UserProfile, int]):
+    def __init__(self, conn):
+        super().__init__(
+            db_connection=conn,
+            table_name="user_profiles",
+            model_class=UserProfile,
+            primary_key="id"
+            # auto_detect_json=True by default
+        )
+
+# Usage - JSON fields handled automatically
+user = UserProfile(
+    id=1,
+    name="John Doe",
+    metadata={"created_at": "2024-01-01", "source": "web"},
+    preferences={"theme": "dark", "language": "en"},
+    tags=["premium", "beta_tester"]
+)
+
+# JSONB fields automatically serialized/deserialized
+created_user = await repo.create(user)
+retrieved_user = await repo.get_by_id(1)
+```
+
 ### Schema Management
 
 ```python
@@ -159,6 +199,7 @@ except RecordNotFoundError:
 - [Database Management](docs/database.md)
 - [Transaction Management](docs/transaction_manager.md)
 - [Base Repository](docs/base_repository.md)
+- [JSONB Support](docs/jsonb_support.md)
 - [PsycopgHelper](docs/psycopg_helper.md)
 
 ## Running Tests
