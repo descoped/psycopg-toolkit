@@ -1,4 +1,4 @@
-"""Transaction usage example of PsycoDB."""
+"""Transaction usage example of psycopg-toolkit."""
 
 import asyncio
 

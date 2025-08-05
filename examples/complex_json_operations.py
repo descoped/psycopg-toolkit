@@ -19,6 +19,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
+from testcontainers.postgres import PostgresContainer
 
 from psycopg_toolkit import (
     BaseRepository,
@@ -272,14 +273,14 @@ class AnalyticsRepository(BaseRepository[Analytics, UUID]):
             return [self.model_class(**self._postprocess_data(dict(row))) for row in rows]
 
 
-async def setup_database():
+async def setup_database(container):
     """Set up database and create tables."""
     settings = DatabaseSettings(
-        host="localhost",
-        port=5432,
-        dbname="psycopg_test",
-        user="postgres",
-        password="postgres",
+        host=container.get_container_host_ip(),
+        port=container.get_exposed_port(5432),
+        dbname=container.dbname,
+        user=container.username,
+        password=container.password,
         enable_json_adapters=True,
     )
 
@@ -571,25 +572,27 @@ async def main():
     print("Advanced JSONB Operations Example")
     print("=" * 50)
 
-    # Setup database
-    db = await setup_database()
+    # Initialize postgres container
+    with PostgresContainer("postgres:17") as container:
+        # Setup database
+        db = await setup_database(container)
 
-    try:
-        # Run demonstrations
-        await demonstrate_complex_operations(db)
+        try:
+            # Run demonstrations
+            await demonstrate_complex_operations(db)
 
-        print("\n" + "=" * 50)
-        print("Example completed successfully!")
-        print("\nKey takeaways:")
-        print("- JSONB fields can store complex nested structures")
-        print("- PostgreSQL JSONB operators enable powerful queries")
-        print("- Transactions work seamlessly with JSONB data")
-        print("- Proper indexing is crucial for performance")
-        print("- Error handling ensures data integrity")
+            print("\n" + "=" * 50)
+            print("Example completed successfully!")
+            print("\nKey takeaways:")
+            print("- JSONB fields can store complex nested structures")
+            print("- PostgreSQL JSONB operators enable powerful queries")
+            print("- Transactions work seamlessly with JSONB data")
+            print("- Proper indexing is crucial for performance")
+            print("- Error handling ensures data integrity")
 
-    finally:
-        # Cleanup
-        await db.cleanup()
+        finally:
+            # Cleanup
+            await db.cleanup()
 
 
 if __name__ == "__main__":
