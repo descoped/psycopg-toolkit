@@ -6,16 +6,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is **psycopg-toolkit**, a robust PostgreSQL database toolkit for Python applications. It provides enterprise-grade connection pooling, transaction management, and a type-safe repository pattern with Pydantic validation.
 
-**Requirements**: Python 3.11+ | PostgreSQL 12+
+**Requirements**: Python 3.11+ | PostgreSQL 12+ | Pydantic v2
 
 ### Key Features
 - Async/await support using psycopg3
 - Connection pooling with automatic retry
 - Type-safe repository pattern with generics
 - Transaction management with savepoints
-- **JSONB support with automatic serialization/deserialization**
-- Pydantic model integration
+- **Comprehensive JSONB support with automatic serialization/deserialization**
+- Pydantic v2 model integration
 - Comprehensive error handling
+- Full control over JSON processing modes
 
 ## Development Commands
 
@@ -26,11 +27,12 @@ This is **psycopg-toolkit**, a robust PostgreSQL database toolkit for Python app
   - All tests including performance: `uv run pytest -m ""`
   - Only performance tests: `uv run pytest -m performance`
   - Only integration tests: `uv run pytest -m integration`
-  - Unit tests only: `uv run pytest -m "not integration and not performance"`
+  - Unit tests only: `uv run pytest tests/unit/`
 - **Build package**: `uv build`
 - **Lint code**: `uv run ruff check`
 - **Format code**: `uv run ruff format`
 - **Fix linting issues**: `uv run ruff check --fix`
+- **Test coverage**: `uv run pytest --cov=src/psycopg_toolkit --cov-report=html`
 
 ### Testing
 - Tests use pytest with asyncio support
@@ -40,9 +42,10 @@ This is **psycopg-toolkit**, a robust PostgreSQL database toolkit for Python app
   - `@pytest.mark.integration` - Database integration tests
   - `@pytest.mark.performance` - Performance benchmarks (excluded by default)
 - Test organization:
-  - Unit tests: Throughout the codebase
-  - Integration tests: Tests requiring database
+  - Unit tests: `tests/unit/`
+  - Integration tests: `tests/test_*.py` (root level)
   - Performance tests: `tests/performance/`
+  - Test utilities: `tests/repositories/`, `tests/conftest.py`
 
 ## Architecture
 
@@ -52,22 +55,25 @@ This is **psycopg-toolkit**, a robust PostgreSQL database toolkit for Python app
    - Handles connection retry logic with exponential backoff
    - Manages pool lifecycle and health checks
    - Provides connection context managers
-   - **Configurable JSON adapter support**
+   - **Configurable JSON adapter support** via `enable_json_adapters`
 
 2. **TransactionManager** (`src/psycopg_toolkit/core/transaction.py`)
    - Manages database transactions with savepoint support
    - Provides schema and data lifecycle management
    - Supports nested transactions via savepoints
    - Abstract base classes for SchemaManager and DataManager
-   - **JSON adapter support in transaction contexts**
+   - **JSON adapter configuration in transaction contexts**
 
 3. **BaseRepository** (`src/psycopg_toolkit/repositories/base.py`)
    - Generic repository pattern implementation
    - Type-safe CRUD operations with Pydantic models
    - Supports generic primary key types (UUID, int, str)
    - Bulk operations with batching
-   - **Automatic JSONB field detection and handling**
-   - **Configurable JSON processing (auto-detect or manual)**
+   - **Automatic JSONB field detection from type hints**
+   - **Three JSON processing modes**:
+     - Auto-detection with custom processing
+     - psycopg native adapters
+     - Completely disabled
 
 4. **PsycopgHelper** (`src/psycopg_toolkit/utils/psychopg_helper.py`)
    - SQL query builder with injection protection
@@ -78,32 +84,35 @@ This is **psycopg-toolkit**, a robust PostgreSQL database toolkit for Python app
 ### JSONB Support Components
 1. **JSONHandler** (`src/psycopg_toolkit/utils/json_handler.py`)
    - Centralized JSON serialization/deserialization
-   - Custom encoder for UUID, datetime, Decimal, set, frozenset
+   - CustomJSONEncoder for UUID, datetime, Decimal, set, frozenset
    - Error handling with descriptive messages
-   - Supports Pydantic model serialization
+   - Supports Pydantic model serialization via `model_dump()`
 
 2. **TypeInspector** (`src/psycopg_toolkit/utils/type_inspector.py`)
    - Automatic detection of JSON fields from Pydantic models
    - Supports Dict, List, Optional, Union types
+   - Handles modern Python type syntax (X | Y)
    - Recursive type inspection for nested structures
 
-3. **JSON-specific Exceptions**
+3. **JSON-specific Exceptions** (`src/psycopg_toolkit/exceptions.py`)
    - `JSONProcessingError` - Base JSON exception
-   - `JSONSerializationError` - Serialization failures
-   - `JSONDeserializationError` - Deserialization failures
+   - `JSONSerializationError` - Serialization failures with field info
+   - `JSONDeserializationError` - Deserialization failures with JSON data
 
 ### Exception Hierarchy
-- `PsycoDBException` - Base exception
-- `DatabaseConnectionError` - Connection failures
-- `DatabasePoolError` - Pool management errors
-- `DatabaseNotAvailable` - Database unavailability
-- `RepositoryError` - Repository operation errors
-- `RecordNotFoundError` - Record not found
-- `InvalidDataError` - Data validation errors
-- `OperationError` - General operation failures
-- `JSONProcessingError` - JSON processing errors
-  - `JSONSerializationError` - JSON serialization failures
-  - `JSONDeserializationError` - JSON deserialization failures
+```
+PsycoDBException (base)
+├── DatabaseConnectionError
+├── DatabasePoolError
+├── DatabaseNotAvailable
+└── RepositoryError
+    ├── RecordNotFoundError
+    ├── InvalidDataError
+    ├── OperationError
+    └── JSONProcessingError
+        ├── JSONSerializationError
+        └── JSONDeserializationError
+```
 
 ### Key Design Patterns
 - **Async-first**: All operations are async using psycopg3
@@ -111,12 +120,12 @@ This is **psycopg-toolkit**, a robust PostgreSQL database toolkit for Python app
 - **Repository pattern**: Generic BaseRepository with type safety
 - **Context managers**: Transaction and schema lifecycle management
 - **Retry logic**: Exponential backoff for connection attempts
-- **Type safety**: Full typing with generics and Pydantic models
-- **Automatic JSON handling**: Seamless JSONB field processing
+- **Type safety**: Full typing with generics and Pydantic v2 models
+- **Flexible JSON handling**: Three modes for different use cases
 
 ## JSONB Feature Usage
 
-### Basic Usage
+### Basic Usage (Auto-detection)
 ```python
 from pydantic import BaseModel
 from typing import Dict, List, Optional
@@ -135,8 +144,8 @@ class UserRepository(BaseRepository[UserProfile, int]):
             db_connection=db_connection,
             table_name="users",
             model_class=UserProfile,
-            primary_key="id",
-            auto_detect_json=True  # Default behavior
+            primary_key="id"
+            # auto_detect_json=True is default
         )
 ```
 
@@ -154,42 +163,75 @@ class ProductRepository(BaseRepository[Product, UUID]):
         )
 ```
 
-### Using psycopg Native Adapters
+### Using psycopg Native Adapters (Recommended for Production)
 ```python
-# In DatabaseSettings
+# Database configuration
 settings = DatabaseSettings(
-    # ... other settings ...
+    host="localhost",
+    port=5432,
+    dbname="mydb",
+    user="user",
+    password="password",
     enable_json_adapters=True  # Enable psycopg's native JSON handling
 )
+
+# Repository configuration
+class UserRepository(BaseRepository[UserProfile, int]):
+    def __init__(self, db_connection):
+        super().__init__(
+            db_connection=db_connection,
+            table_name="users",
+            model_class=UserProfile,
+            primary_key="id",
+            auto_detect_json=False  # Let psycopg handle JSON
+        )
+```
+
+### Completely Disable JSON Processing
+```python
+# For projects with custom JSON handling
+settings = DatabaseSettings(
+    ...,
+    enable_json_adapters=False  # No psycopg adapters
+)
+
+class MyRepository(BaseRepository[MyModel, int]):
+    def __init__(self, db_connection):
+        super().__init__(
+            ...,
+            json_fields=set(),      # No JSON fields
+            auto_detect_json=False  # No auto-detection
+        )
 ```
 
 ## Configuration
 
 ### Database Settings
-- Database settings via `DatabaseSettings` class
-- Supports connection pooling configuration (min/max pool size, timeouts)
+- `DatabaseSettings` class in `src/psycopg_toolkit/core/config.py`
+- Connection pooling configuration (min/max pool size, timeouts)
 - Statement timeout configuration
 - Connection string building with validation
-- **JSON adapter configuration** (`enable_json_adapters`)
+- **JSON adapter configuration** (`enable_json_adapters`, default: True)
 
 ### Repository Configuration
 - `auto_detect_json` (default: True) - Automatically detect JSON fields
-- `json_fields` - Explicitly specify JSON field names
-- `strict_json_processing` - Raise exceptions on deserialization errors
+- `json_fields` - Explicitly specify JSON field names (overrides auto-detection)
+- `strict_json_processing` (default: False) - Raise exceptions on JSON errors
 
 ## Performance Considerations
 
-### JSONB Performance
+### JSONB Performance (from benchmarks)
 - JSONB operations have ~2-3x overhead vs simple fields
 - Bulk operations reduce per-record overhead by 50-70%
+- Complex nested JSON: ~50ms for 1000 ops (0.05ms per op)
 - GIN indexes are crucial for JSONB query performance
-- Consider document size impact on memory usage
+- Memory usage scales with document size
 
 ### Best Practices
-1. **Use bulk operations** for multiple records
-2. **Create GIN indexes** for frequently queried JSONB columns
-3. **Keep JSONB documents reasonably sized** (<10KB preferred)
-4. **Use manual field specification** for slight performance gain
+1. **Use psycopg adapters** for production (best performance)
+2. **Use bulk operations** for multiple records
+3. **Create GIN indexes** for frequently queried JSONB columns
+4. **Keep JSONB documents reasonably sized** (<10KB preferred)
 5. **Monitor memory usage** with large JSONB datasets
 
 ## Testing Strategy
@@ -197,65 +239,135 @@ settings = DatabaseSettings(
 - Schema and data managers for test isolation
 - Transaction rollback for test cleanup
 - Async test support with pytest-asyncio
-- **JSONB-specific test categories**:
-  - Unit tests for JSON handler and type inspector
-  - Integration tests for JSONB CRUD operations
-  - Transaction tests with JSONB data
-  - Edge case tests for malformed JSON
-  - Performance benchmarks comparing JSONB vs non-JSONB
+- **Test categories**:
+  - Unit tests: Mock-based, no database required
+  - Integration tests: Real PostgreSQL via testcontainers
+  - Performance benchmarks: Measure operation timing
+  - Edge case tests: Malformed data, error conditions
 
 ## CI/CD
 - GitHub Actions workflows:
-  - `build-test.yml`: Main CI/CD (excludes performance tests)
-  - `benchmark.yml`: Performance testing (runs on PR or manual trigger)
-  - `release.yml`: PyPI release automation
+  - `.github/workflows/build-test.yml`: Main CI/CD (excludes performance tests)
+  - `.github/workflows/benchmark.yml`: Performance testing (manual/PR trigger)
+  - `.github/workflows/release.yml`: PyPI release automation
 - Tests against Python 3.11, 3.12, and 3.13
 - PostgreSQL 17 in CI environment
-- Coverage reporting to Codecov
+- Coverage reporting with pytest-cov
 - Renovate for dependency updates
-- Linting with ruff (replaces flake8)
+- Linting with ruff
 
 ## Project Structure
 ```
 psycopg-toolkit/
 ├── src/psycopg_toolkit/
+│   ├── __init__.py         # Public API exports
 │   ├── core/
-│   │   ├── database.py      # Database manager
-│   │   ├── transaction.py   # Transaction management
-│   │   └── config.py        # Configuration classes
+│   │   ├── __init__.py
+│   │   ├── config.py       # DatabaseSettings
+│   │   ├── database.py     # Database manager
+│   │   ├── factory.py      # Database factory
+│   │   └── transaction.py  # Transaction management
 │   ├── repositories/
-│   │   └── base.py          # BaseRepository with JSONB support
+│   │   ├── __init__.py
+│   │   └── base.py         # BaseRepository with JSONB
 │   ├── utils/
-│   │   ├── json_handler.py  # JSON serialization/deserialization
-│   │   ├── type_inspector.py # Automatic JSON field detection
-│   │   └── psychopg_helper.py # SQL query builder
-│   └── exceptions.py        # Exception hierarchy
+│   │   ├── __init__.py
+│   │   ├── json_handler.py     # JSON serialization
+│   │   ├── psychopg_helper.py  # SQL query builder
+│   │   └── type_inspector.py   # Type detection
+│   └── exceptions.py       # Exception hierarchy
 ├── tests/
-│   ├── unit/               # Unit tests
-│   ├── integration/        # Integration tests
-│   ├── edge_cases/         # Edge case tests
+│   ├── unit/               # Unit tests (mocked)
+│   │   ├── test_base_repository.py
+│   │   ├── test_base_repository_data_processing.py
+│   │   ├── test_custom_json_encoder.py
+│   │   ├── test_database.py
+│   │   ├── test_field_detection.py
+│   │   ├── test_json_exceptions.py
+│   │   ├── test_json_handler.py
+│   │   ├── test_transaction.py
+│   │   └── test_type_inspector.py
 │   ├── performance/        # Performance benchmarks
-│   └── schema/             # Test database schema
-├── examples/               # Usage examples
-└── docs/                   # Documentation
+│   │   └── test_jsonb_performance.py
+│   ├── repositories/       # Test utilities
+│   │   └── jsonb_repositories.py
+│   ├── sql/               # Test database schema
+│   │   └── init_test_schema.sql
+│   ├── test_database_container.py  # Container tests
+│   ├── test_jsonb_basic.py        # JSONB CRUD tests
+│   ├── test_jsonb_edge_cases.py   # Edge cases
+│   ├── test_jsonb_queries.py      # Query tests
+│   ├── test_jsonb_transactions.py # Transaction tests
+│   ├── conftest.py        # Test fixtures
+│   ├── schema_and_data.py # Test data management
+│   └── test_data.py       # Test data generation
+├── examples/
+│   ├── basic_usage.py              # Basic repository usage
+│   ├── transaction_usage.py        # Transaction examples
+│   ├── jsonb_usage.py             # Comprehensive JSONB examples
+│   ├── jsonb_usage_simple.py      # Simple JSONB examples
+│   └── complex_json_operations.py  # Advanced JSONB patterns
+├── docs/
+│   ├── base_repository.md    # Repository documentation
+│   ├── database.md          # Database manager docs
+│   ├── transaction_manager.md # Transaction docs
+│   ├── psycopg_helper.md    # SQL builder docs
+│   └── jsonb_support.md     # Comprehensive JSONB guide
+└── pyproject.toml          # Project configuration
 ```
 
+## Breaking Changes (v0.1.7+)
+
+### JSONB Auto-detection
+- BaseRepository now auto-detects JSON fields by default
+- Set `auto_detect_json=False` to maintain old behavior
+- DatabaseSettings enables JSON adapters by default (`enable_json_adapters=True`)
+
+### Type Syntax
+- Now requires Python 3.11+ (was 3.9+)
+- Uses modern union syntax: `X | Y` instead of `Union[X, Y]`
+- Uses lowercase generics: `list[T]`, `dict[K, V]`
+
+### New Exceptions
+- Added JSON-specific exceptions (non-breaking additions)
+- Maintained backwards compatibility for existing exceptions
+
+See `BREAKING_CHANGES.md` for detailed migration guide.
+
 ## Recent Changes
+
 ### JSONB Implementation (v0.1.7)
-- Added comprehensive JSONB support
+- Added comprehensive JSONB support with three processing modes
 - Automatic detection of JSON fields from Pydantic models
 - Seamless serialization/deserialization of complex Python types
 - Support for both custom processing and psycopg native adapters
+- Option to completely disable JSON processing
 - Full test coverage including edge cases and performance benchmarks
-- Performance benchmarks excluded from default test runs
+- Created comprehensive documentation in `docs/jsonb_support.md`
 
 ### Code Quality Updates
+- All models now use Pydantic v2 syntax
+- Fixed model_config usage to use ConfigDict
+- Updated all model_dump() calls (no .dict() usage)
 - Migrated from flake8 to ruff for linting
-- Updated type annotations to use Python 3.10+ syntax (X | Y)
-- Fixed TypeInspector to handle modern Union types
-- Maintained backwards compatibility for exception names (no Error suffix)
+- Updated type annotations to Python 3.11+ syntax
 
-### CI/CD Improvements
-- Simplified test workflows using pytest markers
-- Performance tests run in dedicated benchmark workflow
-- Support for Python 3.11, 3.12, and 3.13
+### Documentation
+- Added comprehensive JSONB support guide
+- Updated all documentation to reflect new features
+- Created breaking changes documentation
+- Added examples for all JSONB usage patterns
+
+## Performance Benchmarks
+Performance tests show (1000 operations):
+- Simple fields: ~10ms baseline
+- JSONB fields: ~25-50ms (2.5-5x overhead)
+- Bulk operations: 50-70% faster per record
+- Complex nested JSON: Scales with document complexity
+- Memory: Increases with document size
+
+## Known Limitations
+1. JSONB auto-detection cannot distinguish between PostgreSQL arrays and JSONB
+2. Performance overhead for JSONB operations vs simple fields
+3. Large JSONB documents (>10KB) impact memory usage
+4. No support for JSONB streaming
