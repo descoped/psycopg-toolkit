@@ -9,8 +9,7 @@ from .transaction import TransactionManager
 
 
 def create_transaction_manager(
-    pool: AsyncConnectionPool,
-    json_adapter_configurator: Callable[[AsyncConnection], None] | None = None
+    pool: AsyncConnectionPool, json_adapter_configurator: Callable[[AsyncConnection], None] | None = None
 ) -> TransactionManager:
     """Create a TransactionManager instance.
 

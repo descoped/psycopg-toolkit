@@ -120,7 +120,6 @@ class BaseRepository(Generic[T, K]):
         # Check if psycopg JSON adapters are enabled
         self._use_psycopg_adapters = self._check_psycopg_adapters()
 
-
     def _check_psycopg_adapters(self) -> bool:
         """Check if psycopg JSON adapters are enabled on the connection.
 
