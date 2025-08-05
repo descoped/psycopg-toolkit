@@ -13,7 +13,7 @@ A robust PostgreSQL database toolkit providing enterprise-grade connection pooli
 - Async-first design with connection pooling via `psycopg-pool`
 - Comprehensive transaction management with savepoint support
 - Type-safe repository pattern with Pydantic model validation
-- **JSONB support** with automatic field detection and psycopg JSON adapters
+- JSONB support with automatic field detection and psycopg JSON adapters
 - SQL query builder with SQL injection protection
 - Database schema and test data lifecycle management
 - Automatic retry mechanism with exponential backoff
