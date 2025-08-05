@@ -56,7 +56,7 @@ class OAuthClientRepository(BaseRepository[OAuthClient, uuid.UUID]):
             # Specify which fields should remain as PostgreSQL arrays
             array_fields={"redirect_uris", "grant_types", "scopes"},
             # Specify date fields for automatic conversion
-            date_fields={"created_at", "updated_at"}
+            date_fields={"created_at", "updated_at"},
         )
 
 
@@ -69,10 +69,10 @@ class User(BaseModel):
     email: str
 
     # Date fields (as strings in model)
-    birthdate: str | None = None      # DATE column
-    created_at: str                   # TIMESTAMP column
-    updated_at: str                   # TIMESTAMP column  
-    last_login: str | None = None     # TIMESTAMP column (nullable)
+    birthdate: str | None = None  # DATE column
+    created_at: str  # TIMESTAMP column
+    updated_at: str  # TIMESTAMP column
+    last_login: str | None = None  # TIMESTAMP column (nullable)
 
     # PostgreSQL array
     roles: list[str]
@@ -93,7 +93,7 @@ class UserRepository(BaseRepository[User, uuid.UUID]):
             primary_key="id",
             auto_detect_json=True,
             array_fields={"roles"},  # Keep roles as PostgreSQL array
-            date_fields={"birthdate", "created_at", "updated_at", "last_login"}  # Convert ALL date/timestamp fields
+            date_fields={"birthdate", "created_at", "updated_at", "last_login"},  # Convert ALL date/timestamp fields
         )
 
 
@@ -102,14 +102,15 @@ async def setup_database(container_db_url: str):
     # Parse the connection URL
     # Format: postgresql+psycopg2://user:password@host:port/dbname
     from urllib.parse import urlparse
+
     parsed = urlparse(container_db_url.replace("postgresql+psycopg2", "postgresql"))
 
     settings = DatabaseSettings(
         host=parsed.hostname,
         port=parsed.port,
-        dbname=parsed.path.lstrip('/'),
+        dbname=parsed.path.lstrip("/"),
         user=parsed.username,
-        password=parsed.password
+        password=parsed.password,
     )
     db = Database(settings=settings)
     await db.init_db()
@@ -162,18 +163,11 @@ async def demo_array_fields(db: Database):
         client = OAuthClient(
             client_id="my-app-123",
             client_name="My Application",
-            redirect_uris=[
-                "https://myapp.com/callback",
-                "https://myapp.com/auth/callback"
-            ],
+            redirect_uris=["https://myapp.com/callback", "https://myapp.com/auth/callback"],
             grant_types=["authorization_code", "refresh_token"],
             scopes=["read", "write", "admin"],
-            metadata={
-                "owner": "john@example.com",
-                "tier": "premium",
-                "features": ["sso", "webhooks"]
-            },
-            created_at=datetime.now().isoformat()
+            metadata={"owner": "john@example.com", "tier": "premium", "features": ["sso", "webhooks"]},
+            created_at=datetime.now().isoformat(),
         )
 
         # Create in database
@@ -183,20 +177,16 @@ async def demo_array_fields(db: Database):
         print(f"  Metadata (JSONB): {created.metadata}")
 
         # Verify arrays are stored correctly
-        result = await conn.execute(
-            "SELECT redirect_uris, grant_types FROM oauth_clients WHERE id = %s",
-            [created.id]
-        )
+        result = await conn.execute("SELECT redirect_uris, grant_types FROM oauth_clients WHERE id = %s", [created.id])
         row = await result.fetchone()
         print("\nDirect DB query - Arrays preserved:")
         print(f"  redirect_uris: {row[0]} (type: {type(row[0])})")
         print(f"  grant_types: {row[1]} (type: {type(row[1])})")
 
         # Update arrays
-        updated = await repo.update(created.id, {
-            "scopes": ["read", "write", "admin", "delete"],
-            "updated_at": datetime.now().isoformat()
-        })
+        updated = await repo.update(
+            created.id, {"scopes": ["read", "write", "admin", "delete"], "updated_at": datetime.now().isoformat()}
+        )
         print(f"\nUpdated scopes: {updated.scopes}")
 
 
@@ -216,14 +206,8 @@ async def demo_date_fields(db: Database):
             updated_at=datetime.now().isoformat(),  # TIMESTAMP field
             last_login=datetime.now().isoformat(),  # TIMESTAMP field (nullable)
             roles=["user", "moderator"],
-            profile={
-                "bio": "Software developer",
-                "location": "San Francisco"
-            },
-            settings={
-                "theme": "dark",
-                "notifications": "enabled"
-            }
+            profile={"bio": "Software developer", "location": "San Francisco"},
+            settings={"theme": "dark", "notifications": "enabled"},
         )
 
         created = await repo.create(user)
@@ -234,19 +218,25 @@ async def demo_date_fields(db: Database):
         # Insert directly with PostgreSQL date
         user_id = uuid.uuid4()
         import json
-        await conn.execute("""
+
+        await conn.execute(
+            """
             INSERT INTO users (id, username, email, birthdate, created_at, updated_at, last_login, roles, profile, settings)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
-        """, [
-            user_id, "janedoe", "jane@example.com",
-            date(1985, 3, 20),      # PostgreSQL date object
-            datetime.now(),         # PostgreSQL datetime object  
-            datetime.now(),         # PostgreSQL datetime object
-            datetime.now(),         # PostgreSQL datetime object
-            ["user", "admin"],
-            json.dumps({"bio": "Data scientist"}),
-            json.dumps({"theme": "light"})
-        ])
+        """,
+            [
+                user_id,
+                "janedoe",
+                "jane@example.com",
+                date(1985, 3, 20),  # PostgreSQL date object
+                datetime.now(),  # PostgreSQL datetime object
+                datetime.now(),  # PostgreSQL datetime object
+                datetime.now(),  # PostgreSQL datetime object
+                ["user", "admin"],
+                json.dumps({"bio": "Data scientist"}),
+                json.dumps({"theme": "light"}),
+            ],
+        )
         await conn.commit()
 
         # Retrieve - dates are automatically converted to strings

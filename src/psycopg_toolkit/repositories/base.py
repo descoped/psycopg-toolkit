@@ -184,7 +184,7 @@ class BaseRepository(Generic[T, K]):
         for field_name in self._date_fields:
             if field_name in data and data[field_name] is not None:
                 value = data[field_name]
-                if isinstance(value, (date, datetime)):
+                if isinstance(value, date | datetime):
                     # Convert date/datetime to ISO string for storage
                     processed_data[field_name] = value.isoformat()
                     logger.debug(f"Converted date field '{field_name}' from {type(value).__name__} to ISO string for {self.table_name}")
@@ -282,7 +282,7 @@ class BaseRepository(Generic[T, K]):
         for field_name in self._date_fields:
             if field_name in processed_data and processed_data[field_name] is not None:
                 value = processed_data[field_name]
-                if isinstance(value, (date, datetime)):
+                if isinstance(value, date | datetime):
                     # Convert date/datetime to ISO string for Pydantic
                     processed_data[field_name] = value.isoformat()
                     logger.debug(f"Converted date field '{field_name}' from {type(value).__name__} to ISO string for {self.table_name}")

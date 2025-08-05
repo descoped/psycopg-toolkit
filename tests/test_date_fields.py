@@ -210,7 +210,7 @@ class TestDateFields:
         """Test that PostgreSQL timestamps are converted to strings for string-typed models."""
         conn = date_test_table
         repo = StringDateRepository(conn)
-        
+
         # Insert data directly with PostgreSQL datetime
         test_id = uuid4()
         await conn.execute("""
@@ -218,7 +218,7 @@ class TestDateFields:
             VALUES (%s, %s, %s, %s)
         """, [test_id, "datetime_test", date(2024, 1, 15), datetime(2024, 1, 15, 14, 30, 45)])
         await conn.commit()
-        
+
         # Retrieve - datetime should be converted to ISO string
         retrieved = await repo.get_by_id(test_id)
         assert retrieved.created_timestamp == "2024-01-15T14:30:45"
