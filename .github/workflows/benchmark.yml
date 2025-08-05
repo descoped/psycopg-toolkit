@@ -65,7 +65,7 @@ jobs:
           echo "### Performance Metrics" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           # Extract lines containing performance data (handles both standard and extended format)
-          grep -E "===|avg=|total=|per record=|overhead:|Avg:|Min:|Max:|Median:|StdDev:|Throughput:|Results:|Batch" benchmark-output.txt | grep -v "test session starts" | grep -v "passed," | grep -v "collected" >> $GITHUB_STEP_SUMMARY || true
+          grep -E "===|avg=|total=|per record=|overhead:|Avg:|Min:|Max:|Median:|StdDev:|Throughput:|Results:|Batch|JSONB:|Regular:|insert:|query:|update:" benchmark-output.txt | grep -v "test session starts" | grep -v "passed," | grep -v "collected" >> $GITHUB_STEP_SUMMARY || true
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           

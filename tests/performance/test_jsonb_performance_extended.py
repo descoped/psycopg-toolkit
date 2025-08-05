@@ -377,12 +377,17 @@ class TestJSONBPerformanceExtended:
     async def test_jsonb_vs_regular_detailed(self, jsonb_tables):
         """Detailed comparison of JSONB vs regular columns with various scenarios."""
         print("\n=== Detailed JSONB vs Regular Column Comparison ===")
+        sys.stdout.flush()
 
         # Create comparison tables
-        async with jsonb_tables.cursor() as cur:
-            # Regular normalized table
-            await cur.execute("""
-                CREATE TABLE IF NOT EXISTS regular_normalized (
+        try:
+            async with jsonb_tables.cursor() as cur:
+                # Clean up any existing data
+                await cur.execute("DROP TABLE IF EXISTS regular_normalized CASCADE")
+                
+                # Regular normalized table
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS regular_normalized (
                     id SERIAL PRIMARY KEY,
                     name TEXT,
                     type TEXT,
@@ -394,10 +399,14 @@ class TestJSONBPerformanceExtended:
                 )
             """)
 
-            # Create indexes for fair comparison
-            await cur.execute("CREATE INDEX IF NOT EXISTS idx_regular_type ON regular_normalized(type)")
-            await cur.execute("CREATE INDEX IF NOT EXISTS idx_regular_priority ON regular_normalized(priority)")
-            await cur.execute("CREATE INDEX IF NOT EXISTS idx_jsonb_metadata ON jsonb_complex USING GIN (metadata)")
+                # Create indexes for fair comparison
+                await cur.execute("CREATE INDEX IF NOT EXISTS idx_regular_type ON regular_normalized(type)")
+                await cur.execute("CREATE INDEX IF NOT EXISTS idx_regular_priority ON regular_normalized(priority)")
+                await cur.execute("CREATE INDEX IF NOT EXISTS idx_jsonb_metadata ON jsonb_complex USING GIN (metadata)")
+        except Exception as e:
+            print(f"ERROR creating tables: {e}")
+            sys.stdout.flush()
+            raise
 
         scenarios = [
             ("Simple insert", 100),
@@ -408,9 +417,12 @@ class TestJSONBPerformanceExtended:
         ]
 
         results = []
+        print(f"DEBUG: Starting {len(scenarios)} scenarios...")
+        sys.stdout.flush()
 
         for scenario, iterations in scenarios:
             print(f"\n{scenario}:")
+            sys.stdout.flush()
 
             if "insert" in scenario.lower():
                 if "simple" in scenario.lower():
@@ -571,6 +583,7 @@ class TestJSONBPerformanceExtended:
             print(f"  JSONB:   {jsonb_result['avg'] * 1000:.3f}ms (±{jsonb_result['stddev'] * 1000:.3f}ms)")
             print(f"  Regular: {regular_result['avg'] * 1000:.3f}ms (±{regular_result['stddev'] * 1000:.3f}ms)")
             print(f"  Overhead: {overhead:+.1f}%")
+            sys.stdout.flush()
 
             results.append(
                 {
@@ -587,3 +600,4 @@ class TestJSONBPerformanceExtended:
         print("-" * 60)
         for r in results:
             print(f"{r['scenario']:<24} {r['jsonb_ms']:>9.2f} {r['regular_ms']:>12.2f} {r['overhead_pct']:>+9.1f}%")
+        sys.stdout.flush()
