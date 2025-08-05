@@ -125,7 +125,7 @@ settings = DatabaseSettings(
     dbname="mydb",
     user="user",
     password="password",
-    enable_json_adapters=True  # Enable psycopg JSON adapters
+    enable_json_adapters=True  # Enable psycopg JSON adapters at connection level
 )
 
 # Repository configuration
@@ -140,6 +140,11 @@ class UserRepository(BaseRepository[UserProfile, int]):
             auto_detect_json=False
         )
 ```
+
+**How it works:**
+- `enable_json_adapters=True` configures psycopg JSON adapters on database connections
+- `auto_detect_json=False` tells the repository to use psycopg adapter mode
+- JSON fields are automatically wrapped with psycopg's `Json()` adapter
 
 **Benefits:**
 - ✅ Optimal performance - no double processing
@@ -206,7 +211,7 @@ try:
 except JSONDeserializationError as e:
     print(f"Deserialization failed: {e}")
     print(f"Field: {e.field_name}")
-    print(f"Invalid data: {e.invalid_data}")
+    print(f"Invalid data: {e.json_data}")
 ```
 
 ### Strict vs Lenient Processing
@@ -708,15 +713,21 @@ class EventRepository(BaseRepository[EventLog, int]):
 
 ### Common Issues
 
-1. **Double JSON Processing**:
+1. **Understanding Processing Modes**:
 ```python
-# Problem: Both psycopg adapters and custom processing enabled
-settings = DatabaseSettings(enable_json_adapters=True)  # psycopg handles JSON
-repo = Repository(auto_detect_json=True)  # Custom processing also enabled
+# DatabaseSettings.enable_json_adapters configures connection-level JSON adapters
+settings = DatabaseSettings(enable_json_adapters=True)  # Enables psycopg JSON adapters on connections
 
-# Solution: Choose one approach
-settings = DatabaseSettings(enable_json_adapters=True)
-repo = Repository(auto_detect_json=False)  # Let psycopg handle it
+# Repository processing mode is determined by auto_detect_json parameter:
+# - auto_detect_json=True: Always uses custom JSON processing
+# - auto_detect_json=False with no json_fields: Uses psycopg adapters
+# - explicit json_fields: Always uses custom processing
+
+# For psycopg adapter mode:
+repo = Repository(auto_detect_json=False)  # Let psycopg handle JSON
+
+# For custom processing mode:
+repo = Repository(auto_detect_json=True)   # Use custom JSON handling
 ```
 
 2. **JSON Serialization Errors**:

@@ -3,7 +3,7 @@ from typing import Any, Generic, TypeVar
 
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
-from psycopg.sql import SQL
+from psycopg.sql import SQL, Identifier
 from psycopg.types.json import Json
 
 from ..exceptions import (
@@ -120,6 +120,7 @@ class BaseRepository(Generic[T, K]):
         # Check if psycopg JSON adapters are enabled
         self._use_psycopg_adapters = self._check_psycopg_adapters()
 
+
     def _check_psycopg_adapters(self) -> bool:
         """Check if psycopg JSON adapters are enabled on the connection.
 
@@ -143,76 +144,82 @@ class BaseRepository(Generic[T, K]):
         """
         return self._json_fields.copy()
 
-    def _preprocess_data(self, data: dict[str, Any]) -> dict[str, Any]:
-        """Preprocess data by serializing JSON fields before database operations.
+    def _preprocess_data(self, data: dict[str, Any]) -> dict[str, Any]:  # noqa: C901
+        """Preprocess data by handling JSON fields according to processing mode.
 
-        This method takes a dictionary of data and serializes any fields that are
-        configured as JSON fields using the JSONHandler. Non-JSON fields are left
-        unchanged.
+        In psycopg adapter mode, JSON fields are wrapped with Json() adapter.
+        In custom processing mode, JSON fields are serialized to strings.
 
         Args:
             data (Dict[str, Any]): The data dictionary to preprocess.
 
         Returns:
-            Dict[str, Any]: The preprocessed data with JSON fields serialized as strings.
-
-        Raises:
-            JSONSerializationError: If JSON serialization fails for any field.
+            Dict[str, Any]: The preprocessed data with JSON fields handled.
 
         Example:
             ```python
-            data = {
-                "name": "test",
-                "metadata": {"key": "value"},  # Will be serialized
-                "value": 42,  # Will remain unchanged
-            }
+            # With psycopg adapters:
+            data = {"metadata": {"key": "value"}}
+            processed = repo._preprocess_data(data)
+            # processed["metadata"] is now Json({"key": "value"})
+
+            # With custom processing:
+            data = {"metadata": {"key": "value"}}
             processed = repo._preprocess_data(data)
             # processed["metadata"] is now '{"key": "value"}'
             ```
         """
-        # If we're using psycopg adapters, we need to detect JSON fields from the model
-        # and wrap them with Json() instead of serializing them
-        if self._use_psycopg_adapters:
-            # Auto-detect JSON fields from the model if not already done
-            json_fields = self._json_fields or TypeInspector.detect_json_fields(self.model_class)
-
-            if not json_fields:
-                return data.copy()
-
-            processed_data = data.copy()
-            for field_name in json_fields:
-                if field_name in processed_data and processed_data[field_name] is not None:
-                    value = processed_data[field_name]
-                    # Wrap dict/list values with Json() for psycopg adapters
-                    if isinstance(value, dict | list):
-                        processed_data[field_name] = Json(value)
-
-            return processed_data
-
-        # Original logic for custom JSON processing
-        if not self._json_fields:
-            logger.debug(f"No JSON fields configured for {self.table_name}, skipping preprocessing")
-            return data.copy()
-
         processed_data = data.copy()
 
-        for field_name in self._json_fields:
-            if field_name in processed_data and processed_data[field_name] is not None:
-                try:
-                    original_value = processed_data[field_name]
-                    serialized_value = JSONHandler.serialize(original_value)
-                    processed_data[field_name] = serialized_value
-                    logger.debug(f"Serialized JSON field '{field_name}' for {self.table_name}")
-                except Exception as e:
-                    logger.error(f"Failed to serialize JSON field '{field_name}' in {self.table_name}: {e}")
-                    raise JSONSerializationError(
-                        f"JSON serialization failed for field '{field_name}': {e}",
-                        field_name=field_name,
-                        value=original_value,
-                        original_error=e,
-                    ) from e
+        # If using psycopg adapters, wrap ALL dict/list fields with Json() adapter
+        if self._use_psycopg_adapters:
+            for field_name, value in data.items():
+                if value is not None and isinstance(value, dict | list):
+                    processed_data[field_name] = Json(value)
+                    logger.debug(f"Wrapped JSON field '{field_name}' with psycopg Json adapter")
+            return processed_data
 
-        logger.debug(f"Preprocessed {len(self._json_fields)} JSON fields for {self.table_name}")
+        # For custom JSON processing, determine which fields need processing
+        json_fields = self._json_fields
+        if not json_fields and self._auto_detect_json:
+            json_fields = TypeInspector.detect_json_fields(self.model_class)
+
+        if not json_fields:
+            return data.copy()
+
+        # Custom JSON processing mode - serialize to strings
+        for field_name in json_fields:
+            if field_name in processed_data and processed_data[field_name] is not None:
+                value = processed_data[field_name]
+                if isinstance(value, dict | list):
+                    try:
+                        # Serialize to JSON string for manual processing
+                        serialized = JSONHandler.serialize(value)
+                        processed_data[field_name] = serialized
+                        logger.debug(f"Serialized JSON field '{field_name}' for {self.table_name}")
+                    except Exception as e:
+                        logger.error(f"Failed to serialize JSON field '{field_name}' in {self.table_name}: {e}")
+                        raise JSONSerializationError(
+                            f"JSON serialization failed for field '{field_name}': {e}",
+                            field_name=field_name,
+                            value=value,
+                            original_error=e,
+                        ) from e
+                elif not isinstance(value, str):
+                    # Value is not dict/list/str, try to serialize it anyway
+                    try:
+                        serialized = JSONHandler.serialize(value)
+                        processed_data[field_name] = serialized
+                        logger.debug(f"Serialized non-standard JSON field '{field_name}' for {self.table_name}")
+                    except Exception as e:
+                        logger.error(f"Failed to serialize JSON field '{field_name}' in {self.table_name}: {e}")
+                        raise JSONSerializationError(
+                            f"JSON serialization failed for field '{field_name}': {e}",
+                            field_name=field_name,
+                            value=value,
+                            original_error=e,
+                        ) from e
+
         return processed_data
 
     def _postprocess_data(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -455,7 +462,8 @@ class BaseRepository(Generic[T, K]):
         """
         try:
             async with self.db_connection.cursor(row_factory=dict_row) as cur:
-                await cur.execute(f"SELECT * FROM {self.table_name}")
+                query = SQL("SELECT * FROM {}").format(Identifier(self.table_name))
+                await cur.execute(query)
                 rows = await cur.fetchall()
 
                 # Postprocess each row to deserialize JSON fields

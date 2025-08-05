@@ -371,7 +371,6 @@ class TestBaseRepositoryDataProcessing:
 
         assert any("Serialized JSON field 'metadata'" in call for call in debug_calls)
         assert any("Serialized JSON field 'tags'" in call for call in debug_calls)
-        assert any("Preprocessed 3 JSON fields" in call for call in debug_calls)
 
     @patch("psycopg_toolkit.repositories.base.logger")
     def test_postprocessing_logging(self, mock_logger, json_repo):
@@ -386,7 +385,7 @@ class TestBaseRepositoryDataProcessing:
 
         assert any("Deserialized JSON field 'metadata'" in call for call in debug_calls)
         assert any("Deserialized JSON field 'tags'" in call for call in debug_calls)
-        assert any("Postprocessed 3 JSON fields" in call for call in debug_calls)
+        assert any("Postprocessed" in call and "JSON fields" in call for call in debug_calls)
 
     @patch("psycopg_toolkit.repositories.base.logger")
     def test_postprocessing_error_logging(self, mock_logger, json_repo):

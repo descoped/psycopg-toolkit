@@ -1,7 +1,10 @@
 import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .transaction import TransactionManager
 
 import psycopg
 from psycopg import AsyncConnection
@@ -44,7 +47,7 @@ class Database:
         self._settings = settings
         self._pool: AsyncConnectionPool | None = None
         self._init_callbacks: list[Callable[[AsyncConnectionPool], Awaitable[None]]] = []
-        self._transaction_manager = None
+        self._transaction_manager: TransactionManager | None = None
 
     def _configure_json_adapters(self, connection: AsyncConnection) -> None:
         """Configure psycopg JSON adapters for JSONB support.
@@ -233,17 +236,17 @@ class Database:
         """
         return self._pool is not None and not self._pool.closed
 
-    async def get_transaction_manager(self) -> Any:
+    async def get_transaction_manager(self) -> "TransactionManager":
         """Get existing transaction manager or create new one.
 
         Returns:
             TransactionManager: Active transaction manager
         """
         if not self._transaction_manager:
-            from .transaction import TransactionManager
+            from .factory import create_transaction_manager
 
             pool = await self.get_pool()
-            self._transaction_manager = TransactionManager(pool, self._configure_json_adapters)
+            self._transaction_manager = create_transaction_manager(pool, self._configure_json_adapters)
         return self._transaction_manager
 
     @asynccontextmanager
