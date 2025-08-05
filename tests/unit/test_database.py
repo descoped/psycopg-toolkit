@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from psycopg.errors import OperationalError
@@ -62,10 +62,10 @@ async def test_register_callback(database):
 
 @pytest.mark.asyncio
 async def test_ping_postgres_success(database):
-    with patch("psycopg_toolkit.core.database.psycopg.connect") as mock_connect:
-        mock_conn = Mock()
+    with patch("psycopg_toolkit.core.database.AsyncConnection.connect") as mock_connect:
+        mock_conn = AsyncMock()
         mock_connect.return_value = mock_conn
-        assert database.ping_postgres() is True
+        assert await database.ping_postgres() is True
         mock_connect.assert_called_once_with(
             "host=localhost port=5432 dbname=test_db user=test_user password=test_pass connect_timeout=5"
         )
@@ -74,17 +74,17 @@ async def test_ping_postgres_success(database):
 @pytest.mark.asyncio
 async def test_ping_postgres_failure(database):
     with (
-        patch("psycopg_toolkit.core.database.psycopg.connect", side_effect=OperationalError("Connection failed")),
+        patch("psycopg_toolkit.core.database.AsyncConnection.connect", side_effect=OperationalError("Connection failed")),
         patch("tenacity.wait.wait_exponential.__call__", return_value=0),
         pytest.raises(RetryError),
     ):
-        database.ping_postgres()
+        await database.ping_postgres()
 
 
 @pytest.mark.asyncio
 async def test_create_pool_success(database):
-    with patch("psycopg_toolkit.core.database.psycopg.connect") as mock_connect:
-        mock_conn = Mock()
+    with patch("psycopg_toolkit.core.database.AsyncConnection.connect") as mock_connect:
+        mock_conn = AsyncMock()
         mock_connect.return_value = mock_conn
 
         mock_pool = AsyncMock(spec=AsyncConnectionPool)
@@ -115,8 +115,8 @@ async def test_get_pool_existing(database, mock_pool):
 
 @pytest.mark.asyncio
 async def test_get_pool_new(database):
-    with patch("psycopg_toolkit.core.database.psycopg.connect") as mock_connect:
-        mock_conn = Mock()
+    with patch("psycopg_toolkit.core.database.AsyncConnection.connect") as mock_connect:
+        mock_conn = AsyncMock()
         mock_connect.return_value = mock_conn
 
         mock_pool = AsyncMock(spec=AsyncConnectionPool)
@@ -152,8 +152,8 @@ async def test_init_db(database):
     callback_mock = AsyncMock()
     await database.register_init_callback(callback_mock)
 
-    with patch("psycopg_toolkit.core.database.psycopg.connect") as mock_connect:
-        mock_conn = Mock()
+    with patch("psycopg_toolkit.core.database.AsyncConnection.connect") as mock_connect:
+        mock_conn = AsyncMock()
         mock_connect.return_value = mock_conn
 
         mock_pool = AsyncMock(spec=AsyncConnectionPool)

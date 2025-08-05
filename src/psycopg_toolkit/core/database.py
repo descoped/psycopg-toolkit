@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .transaction import TransactionManager
 
-import psycopg
 from psycopg import AsyncConnection
 from psycopg.types import json
 from psycopg_pool import AsyncConnectionPool
@@ -74,7 +73,7 @@ class Database:
             logger.debug("JSON adapters disabled in settings")
 
     @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=4, max=10))
-    def ping_postgres(self) -> bool:
+    async def ping_postgres(self) -> bool:
         """Test database connectivity with exponential backoff retry.
 
         Returns:
@@ -85,8 +84,8 @@ class Database:
         """
         try:
             logger.info(f"Pinging PostgreSQL at {self._settings.host}")
-            conn = psycopg.connect(self._settings.get_connection_string(self._settings.connection_timeout))
-            conn.close()
+            conn = await AsyncConnection.connect(self._settings.get_connection_string(self._settings.connection_timeout))
+            await conn.close()
             logger.info("Successfully connected to PostgreSQL")
             return True
         except Exception as e:
@@ -104,7 +103,7 @@ class Database:
             DatabasePoolError: If pool creation or initialization fails
         """
         try:
-            if not self.ping_postgres():
+            if not await self.ping_postgres():
                 raise DatabaseConnectionError("Failed to ping database")
 
             logger.info("Initializing connection pool")

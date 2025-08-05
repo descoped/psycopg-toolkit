@@ -93,7 +93,7 @@ The connection pool provides:
 
 ```python
 # Check database connectivity
-is_available = db.ping_postgres()
+is_available = await db.ping_postgres()
 
 # Check pool health
 is_healthy = await db.check_pool_health()
@@ -192,7 +192,7 @@ if not await db.check_pool_health():
 1. Use built-in retry mechanism:
 ```python
 # Database.ping_postgres() automatically retries with exponential backoff
-is_available = db.ping_postgres()
+is_available = await db.ping_postgres()
 ```
 
 2. Handle cleanup properly:
