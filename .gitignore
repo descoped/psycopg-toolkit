@@ -6,6 +6,10 @@ __pycache__/
 # C extensions
 *.so
 
+# Poetry files (project uses uv/Hatch, not Poetry)
+poetry.lock
+pyproject.toml.poetry
+
 # Distribution / packaging
 .Python
 build/
