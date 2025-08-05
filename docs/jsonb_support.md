@@ -129,6 +129,69 @@ class ProductRepository(BaseRepository[Product, int]):
         )
 ```
 
+### Array Fields Configuration
+
+When working with PostgreSQL arrays (e.g., `TEXT[]`, `INTEGER[]`), use the `array_fields` parameter to prevent them from being processed as JSONB.
+
+For a complete working example, see [examples/array_and_date_fields.py](../examples/array_and_date_fields.py).
+
+```python
+class OAuthClient(BaseModel):
+    id: UUID
+    client_id: str
+    redirect_uris: List[str]      # PostgreSQL TEXT[] array
+    grant_types: List[str]        # PostgreSQL TEXT[] array
+    metadata: Dict[str, Any]      # JSONB field
+
+class ClientRepository(BaseRepository[OAuthClient, UUID]):
+    def __init__(self, db_connection):
+        super().__init__(
+            db_connection=db_connection,
+            table_name="oauth_clients",
+            model_class=OAuthClient,
+            primary_key="id",
+            auto_detect_json=True,  # Detects metadata as JSON
+            array_fields={"redirect_uris", "grant_types"}  # Keep as arrays
+        )
+```
+
+The `array_fields` parameter:
+- Takes precedence over JSON auto-detection
+- Preserves PostgreSQL array types instead of converting to JSONB
+- Useful for maintaining existing database schemas with array columns
+
+### Date Fields Configuration
+
+For automatic conversion between PostgreSQL `DATE`/`TIMESTAMP` fields and Pydantic string fields.
+
+For a complete working example, see [examples/array_and_date_fields.py](../examples/array_and_date_fields.py).
+
+```python
+class User(BaseModel):
+    id: UUID
+    username: str
+    birthdate: Optional[str]  # Expects ISO date string
+    created_at: str           # Expects ISO datetime string
+    metadata: Dict[str, Any]
+
+class UserRepository(BaseRepository[User, UUID]):
+    def __init__(self, db_connection):
+        super().__init__(
+            db_connection=db_connection,
+            table_name="users",
+            model_class=User,
+            primary_key="id",
+            auto_detect_json=True,
+            date_fields={"birthdate", "created_at"}  # Auto-convert dates
+        )
+```
+
+The `date_fields` parameter:
+- Converts PostgreSQL `date` objects to ISO format strings for Pydantic
+- Handles `None` values for optional fields
+- Works with both `DATE` and `TIMESTAMP` PostgreSQL types
+- Only converts when Pydantic model expects string types
+
 ## Configuration Approaches
 
 ### Approach 1: psycopg JSON Adapters (Recommended)

@@ -1,4 +1,5 @@
 import logging
+from datetime import date, datetime
 from typing import Any, Generic, TypeVar
 
 from psycopg import AsyncConnection
@@ -71,6 +72,8 @@ class BaseRepository(Generic[T, K]):
         json_fields: set[str] | None = None,
         auto_detect_json: bool = True,
         strict_json_processing: bool = False,
+        date_fields: set[str] | None = None,
+        array_fields: set[str] | None = None,
     ):
         """
         Initialize the base repository.
@@ -86,6 +89,12 @@ class BaseRepository(Generic[T, K]):
                 Pydantic type hints. Ignored if json_fields is provided. Defaults to True.
             strict_json_processing (bool, optional): Whether to raise exceptions for JSON
                 deserialization errors instead of logging warnings. Defaults to False.
+            date_fields (Optional[Set[str]], optional): Set of field names that contain
+                date values that need conversion between datetime.date and ISO strings.
+                Defaults to None.
+            array_fields (Optional[Set[str]], optional): Set of field names that should be
+                treated as PostgreSQL arrays rather than JSONB. Only relevant when
+                auto_detect_json=False. Defaults to None.
 
         Note:
             The model_class should be a Pydantic model that matches the database schema.
@@ -107,8 +116,11 @@ class BaseRepository(Generic[T, K]):
             self._json_fields = json_fields
             logger.debug(f"Using explicit JSON fields for {table_name}: {json_fields}")
         elif auto_detect_json:
-            self._json_fields = TypeInspector.detect_json_fields(model_class)
-            logger.debug(f"Auto-detected JSON fields for {table_name}: {self._json_fields}")
+            detected_fields = TypeInspector.detect_json_fields(model_class)
+            # Exclude array fields from JSON fields
+            self._json_fields = detected_fields - (array_fields or set())
+            logger.debug(f"Auto-detected JSON fields for {table_name}: {detected_fields}")
+            logger.debug(f"JSON fields after excluding arrays: {self._json_fields}")
         else:
             self._json_fields = set()
             logger.debug(f"JSON field processing disabled for {table_name}")
@@ -116,6 +128,8 @@ class BaseRepository(Generic[T, K]):
         # Cache for performance and configuration
         self._auto_detect_json = auto_detect_json
         self._strict_json_processing = strict_json_processing
+        self._date_fields = date_fields or set()
+        self._array_fields = array_fields or set()
 
         # Check if psycopg JSON adapters are enabled
         self._use_psycopg_adapters = self._check_psycopg_adapters()
@@ -126,13 +140,9 @@ class BaseRepository(Generic[T, K]):
         Returns:
             bool: True if psycopg JSON adapters are enabled, False otherwise.
         """
-        # We use psycopg adapters when:
-        # 1. auto_detect_json is False AND no explicit json_fields are set
-        # This indicates the user wants psycopg to handle JSON automatically
-        #
-        # If explicit json_fields are provided, we use custom processing
-        # to have fine-grained control over which fields are processed
-        return not self._auto_detect_json and not self._json_fields
+        # Never use psycopg adapters - this causes issues with arrays
+        # When auto_detect_json=False, users expect NO JSON processing
+        return False
 
     @property
     def json_fields(self) -> set[str]:
@@ -143,7 +153,7 @@ class BaseRepository(Generic[T, K]):
         """
         return self._json_fields.copy()
 
-    def _preprocess_data(self, data: dict[str, Any]) -> dict[str, Any]:  # noqa: C901
+    def _preprocess_data(self, data: dict[str, Any]) -> dict[str, Any]:
         """Preprocess data by handling JSON fields according to processing mode.
 
         In psycopg adapter mode, JSON fields are wrapped with Json() adapter.
@@ -170,21 +180,33 @@ class BaseRepository(Generic[T, K]):
         """
         processed_data = data.copy()
 
-        # If using psycopg adapters, wrap ALL dict/list fields with Json() adapter
-        if self._use_psycopg_adapters:
-            for field_name, value in data.items():
-                if value is not None and isinstance(value, dict | list):
-                    processed_data[field_name] = Json(value)
-                    logger.debug(f"Wrapped JSON field '{field_name}' with psycopg Json adapter")
-            return processed_data
+        # Convert date fields to appropriate format if needed
+        for field_name in self._date_fields:
+            if field_name in data and data[field_name] is not None:
+                value = data[field_name]
+                if isinstance(value, date) and not isinstance(value, datetime):
+                    # Convert date to ISO string for storage
+                    processed_data[field_name] = value.isoformat()
+                    logger.debug(f"Converted date field '{field_name}' to ISO string for {self.table_name}")
 
         # For custom JSON processing, determine which fields need processing
         json_fields = self._json_fields
-        if not json_fields and self._auto_detect_json:
-            json_fields = TypeInspector.detect_json_fields(self.model_class)
 
+        # If no JSON fields should be processed
         if not json_fields:
-            return data.copy()
+            # When auto_detect_json is False, wrap dict/list values with Json()
+            # unless they are explicitly marked as array fields
+            if not self._auto_detect_json:
+                for field_name, value in data.items():
+                    if value is not None and isinstance(value, dict | list):
+                        # Skip array fields - they should remain as PostgreSQL arrays
+                        if field_name in self._array_fields:
+                            logger.debug(f"Preserving array field '{field_name}' for PostgreSQL array handling")
+                            continue
+                        # Wrap other dict/list fields with Json()
+                        processed_data[field_name] = Json(value)
+                        logger.debug(f"Wrapped field '{field_name}' with Json() for PostgreSQL JSONB handling")
+            return processed_data
 
         # Custom JSON processing mode - serialize to strings
         for field_name in json_fields:
@@ -251,16 +273,33 @@ class BaseRepository(Generic[T, K]):
             # processed["metadata"] is now {"key": "value"}
             ```
         """
-        # If we're using psycopg adapters, the data is already deserialized
-        if self._use_psycopg_adapters:
-            return data.copy()
-
-        # Original logic for custom JSON processing
-        if not self._json_fields:
-            logger.debug(f"No JSON fields configured for {self.table_name}, skipping postprocessing")
-            return data.copy()
+        # Check which fields should be processed
+        json_fields = self._json_fields
 
         processed_data = data.copy()
+
+        # Convert date fields from database format to string if needed
+        for field_name in self._date_fields:
+            if field_name in processed_data and processed_data[field_name] is not None:
+                value = processed_data[field_name]
+                if isinstance(value, date) and not isinstance(value, datetime):
+                    # Convert date to ISO string for Pydantic
+                    processed_data[field_name] = value.isoformat()
+                    logger.debug(f"Converted date field '{field_name}' from date to ISO string for {self.table_name}")
+
+        # If no JSON fields should be processed, return the processed data
+        if not json_fields:
+            logger.debug(f"No JSON fields configured for {self.table_name}, skipping JSON postprocessing")
+            return processed_data
+
+        # Convert date fields to appropriate format if needed
+        for field_name in self._date_fields:
+            if field_name in data and data[field_name] is not None:
+                value = data[field_name]
+                if isinstance(value, date) and not isinstance(value, datetime):
+                    # Convert date to ISO string for storage
+                    processed_data[field_name] = value.isoformat()
+                    logger.debug(f"Converted date field '{field_name}' to ISO string for {self.table_name}")
 
         for field_name in self._json_fields:
             if field_name in processed_data and processed_data[field_name] is not None:

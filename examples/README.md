@@ -45,6 +45,13 @@ Advanced JSONB operations and patterns:
 - Performance optimization techniques
 - Comprehensive error handling
 
+#### [array_and_date_fields.py](array_and_date_fields.py)
+PostgreSQL arrays and date field handling:
+- Using `array_fields` to preserve PostgreSQL arrays (TEXT[], INTEGER[])
+- Using `date_fields` for automatic date/string conversion
+- Mixing JSONB, arrays, and date fields in one model
+- Practical examples with OAuth clients and user profiles
+
 ### Advanced Examples
 
 #### [bulk_operations.py](bulk_operations.py)
@@ -126,6 +133,7 @@ Start with these examples if you're new to psycopg-toolkit:
 For working with JSON data in PostgreSQL:
 1. `jsonb_usage.py` - Comprehensive JSONB introduction
 2. `complex_json_operations.py` - Advanced patterns and optimization
+3. `array_and_date_fields.py` - PostgreSQL arrays vs JSONB and date handling
 
 ### Performance & Scale
 For production applications:

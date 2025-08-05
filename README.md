@@ -14,6 +14,8 @@ A robust PostgreSQL database toolkit providing enterprise-grade connection pooli
 - Comprehensive transaction management with savepoint support
 - Type-safe repository pattern with Pydantic model validation
 - JSONB support with automatic field detection and psycopg JSON adapters
+- PostgreSQL array field preservation (TEXT[], INTEGER[])
+- Automatic date/timestamp conversion for Pydantic models
 - SQL query builder with SQL injection protection
 - Database schema and test data lifecycle management
 - Automatic retry mechanism with exponential backoff
@@ -155,6 +157,48 @@ user = UserProfile(
 # JSONB fields automatically serialized/deserialized
 created_user = await repo.create(user)
 retrieved_user = await repo.get_by_id(1)
+```
+
+### PostgreSQL Arrays and Date Fields
+
+```python
+from typing import List
+from datetime import date
+from pydantic import BaseModel
+from psycopg_toolkit import BaseRepository
+
+class User(BaseModel):
+    id: UUID
+    username: str
+    roles: List[str]          # PostgreSQL TEXT[] array
+    permissions: List[str]    # PostgreSQL TEXT[] array
+    metadata: Dict[str, Any]  # JSONB field
+    birthdate: str            # ISO date string
+    created_at: str           # ISO datetime string
+
+class UserRepository(BaseRepository[User, UUID]):
+    def __init__(self, conn):
+        super().__init__(
+            db_connection=conn,
+            table_name="users",
+            model_class=User,
+            primary_key="id",
+            # Preserve PostgreSQL arrays instead of JSONB
+            array_fields={"roles", "permissions"},
+            # Auto-convert dates to/from strings
+            date_fields={"birthdate", "created_at"}
+        )
+
+# PostgreSQL arrays are preserved, dates are auto-converted
+user = User(
+    id=uuid4(),
+    username="john",
+    roles=["admin", "user"],      # Stored as TEXT[]
+    permissions=["read", "write"], # Stored as TEXT[]
+    metadata={"dept": "IT"},       # Stored as JSONB
+    birthdate="1990-01-01",        # Converts to/from PostgreSQL DATE
+    created_at="2024-01-01T12:00:00" # Converts to/from TIMESTAMP
+)
 ```
 
 ### Schema Management

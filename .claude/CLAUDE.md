@@ -74,6 +74,8 @@ This is **psycopg-toolkit**, a robust PostgreSQL database toolkit for Python app
      - Auto-detection with custom processing
      - psycopg native adapters
      - Completely disabled
+   - **Array field preservation** via `array_fields` parameter
+   - **Automatic date conversion** via `date_fields` parameter
 
 4. **PsycopgHelper** (`src/psycopg_toolkit/utils/psychopg_helper.py`)
    - SQL query builder with injection protection
@@ -204,6 +206,46 @@ class MyRepository(BaseRepository[MyModel, int]):
         )
 ```
 
+### Using Array Fields (PostgreSQL Arrays)
+```python
+# Preserve PostgreSQL arrays instead of converting to JSONB
+class OAuthClient(BaseModel):
+    id: UUID
+    redirect_uris: List[str]  # Will be TEXT[] array
+    grant_types: List[str]    # Will be TEXT[] array
+    metadata: Dict[str, Any]  # Will be JSONB
+
+class ClientRepository(BaseRepository[OAuthClient, UUID]):
+    def __init__(self, db_connection):
+        super().__init__(
+            db_connection=db_connection,
+            table_name="oauth_clients",
+            model_class=OAuthClient,
+            primary_key="id",
+            array_fields={"redirect_uris", "grant_types"}  # Keep as arrays
+        )
+```
+
+### Using Date Fields (Automatic Conversion)
+```python
+# Automatically convert PostgreSQL dates to/from strings
+class User(BaseModel):
+    id: UUID
+    username: str
+    birthdate: str  # Expects ISO date string
+    created_at: str  # Expects ISO datetime string
+
+class UserRepository(BaseRepository[User, UUID]):
+    def __init__(self, db_connection):
+        super().__init__(
+            db_connection=db_connection,
+            table_name="users",
+            model_class=User,
+            primary_key="id",
+            date_fields={"birthdate", "created_at"}  # Auto-convert dates
+        )
+```
+
 ## Configuration
 
 ### Database Settings
@@ -217,6 +259,8 @@ class MyRepository(BaseRepository[MyModel, int]):
 - `auto_detect_json` (default: True) - Automatically detect JSON fields
 - `json_fields` - Explicitly specify JSON field names (overrides auto-detection)
 - `strict_json_processing` (default: False) - Raise exceptions on JSON errors
+- `array_fields` - Preserve PostgreSQL arrays (TEXT[], INTEGER[]) instead of JSONB
+- `date_fields` - Automatically convert PostgreSQL date/timestamp to/from strings
 
 ## Performance Considerations
 
@@ -298,6 +342,8 @@ psycopg-toolkit/
 │   ├── test_jsonb_edge_cases.py   # Edge cases
 │   ├── test_jsonb_queries.py      # Query tests
 │   ├── test_jsonb_transactions.py # Transaction tests
+│   ├── test_array_fields.py       # Array field tests
+│   ├── test_date_fields.py        # Date field tests
 │   ├── conftest.py        # Test fixtures
 │   ├── schema_and_data.py # Test data management
 │   └── test_data.py       # Test data generation
@@ -306,7 +352,8 @@ psycopg-toolkit/
 │   ├── transaction_usage.py        # Transaction examples
 │   ├── jsonb_usage.py             # Comprehensive JSONB examples
 │   ├── jsonb_usage_simple.py      # Simple JSONB examples
-│   └── complex_json_operations.py  # Advanced JSONB patterns
+│   ├── complex_json_operations.py  # Advanced JSONB patterns
+│   └── array_and_date_fields.py   # Array fields and date conversion
 ├── docs/
 │   ├── base_repository.md    # Repository documentation
 │   ├── database.md          # Database manager docs
@@ -345,6 +392,13 @@ See `BREAKING_CHANGES.md` for detailed migration guide.
 - Full test coverage including edge cases and performance benchmarks
 - Created comprehensive documentation in `docs/jsonb_support.md`
 
+### Array and Date Field Support (v0.1.8)
+- Added `array_fields` parameter to preserve PostgreSQL arrays (TEXT[], INTEGER[])
+- Added `date_fields` parameter for automatic date/string conversion
+- Fixed auto_detect_json=False not fully disabling JSON processing
+- Improved JSON field detection to exclude array fields
+- Added comprehensive tests and examples for new features
+
 ### Code Quality Updates
 - All models now use Pydantic v2 syntax
 - Fixed model_config usage to use ConfigDict
@@ -367,7 +421,7 @@ Performance tests show (1000 operations):
 - Memory: Increases with document size
 
 ## Known Limitations
-1. JSONB auto-detection cannot distinguish between PostgreSQL arrays and JSONB
+1. JSONB auto-detection cannot distinguish between PostgreSQL arrays and JSONB (use `array_fields` parameter)
 2. Performance overhead for JSONB operations vs simple fields
 3. Large JSONB documents (>10KB) impact memory usage
 4. No support for JSONB streaming

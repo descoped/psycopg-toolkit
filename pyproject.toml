@@ -173,6 +173,9 @@ extend-ignore = [
     "S105", # Allow hardcoded secrets in tests
     "T201",   # Print found (allow print statements)
 ]
+"src/psycopg_toolkit/repositories/base.py" = [
+    "C901", # _postprocess_data handles multiple concerns (date/JSON processing)
+]
 "examples/*" = [
     "T201", # Allow print statements in examples
     "T203", # Allow pprint in examples
