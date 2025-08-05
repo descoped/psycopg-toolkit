@@ -74,7 +74,7 @@ jobs:
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         slug: descoped/psycopg-toolkit
-        file: ./coverage.xml
+        files: ./coverage.xml
         fail_ci_if_error: false
 
   build:
