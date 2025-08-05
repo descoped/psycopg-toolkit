@@ -42,8 +42,6 @@ test = [
 ]
 dev = [
     "ruff>=0.8.0",
-    "restructuredtext-lint>=1.4.0",
-    "pygments>=2.19.1",
 ]
 
 [build-system]

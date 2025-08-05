@@ -172,15 +172,6 @@ wheels = [
 ]
 
 [[package]]
-name = "docutils"
-version = "0.22"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e9/86/5b41c32ecedcfdb4c77b28b6cb14234f252075f8cdb254531727a35547dd/docutils-0.22.tar.gz", hash = "sha256:ba9d57750e92331ebe7c08a1bbf7a7f8143b86c476acd51528b042216a6aad0f", size = 2277984, upload-time = "2025-07-29T15:20:31.06Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/44/57/8db39bc5f98f042e0153b1de9fb88e1a409a33cda4dd7f723c2ed71e01f6/docutils-0.22-py3-none-any.whl", hash = "sha256:4ed966a0e96a0477d852f7af31bdcb3adc049fbb35ccba358c2ea8a03287615e", size = 630709, upload-time = "2025-07-29T15:20:28.335Z" },
-]
-
-[[package]]
 name = "idna"
 version = "3.10"
 source = { registry = "https://pypi.org/simple" }
@@ -258,7 +249,7 @@ wheels = [
 
 [[package]]
 name = "psycopg-toolkit"
-version = "0.1.7"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "psycopg" },
@@ -269,8 +260,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "pygments" },
-    { name = "restructuredtext-lint" },
     { name = "ruff" },
 ]
 test = [
@@ -290,11 +279,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "pygments", specifier = ">=2.19.1" },
-    { name = "restructuredtext-lint", specifier = ">=1.4.0" },
-    { name = "ruff", specifier = ">=0.8.0" },
-]
+dev = [{ name = "ruff", specifier = ">=0.8.0" }]
 test = [
     { name = "psutil", specifier = ">=6.1.0" },
     { name = "pytest", specifier = ">=8.3.0" },
@@ -476,15 +461,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/e1/0a/929373653770d8a0d
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7c/e4/56027c4a6b4ae70ca9de302488c5ca95ad4a39e190093d6c1a8ace08341b/requests-2.32.4-py3-none-any.whl", hash = "sha256:27babd3cda2a6d50b30443204ee89830707d396671944c998b5975b031ac2b2c", size = 64847, upload-time = "2025-06-09T16:43:05.728Z" },
 ]
-
-[[package]]
-name = "restructuredtext-lint"
-version = "1.4.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "docutils" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/48/9c/6d8035cafa2d2d314f34e6cd9313a299de095b26e96f1c7312878f988eec/restructuredtext_lint-1.4.0.tar.gz", hash = "sha256:1b235c0c922341ab6c530390892eb9e92f90b9b75046063e047cacfb0f050c45", size = 16723, upload-time = "2022-02-24T05:51:10.907Z" }
 
 [[package]]
 name = "ruff"
