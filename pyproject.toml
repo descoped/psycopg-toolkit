@@ -38,7 +38,7 @@ test = [
     "pytest-asyncio>=0.25.2",
     "pytest-cov>=6.0.0",
     "testcontainers[postgresql]>=4.9.1",
-    "psutil>=6.1.0",  # For performance benchmarks
+    "psutil>=6.1.0", # For performance benchmarks
 ]
 dev = [
     "ruff>=0.8.0",
@@ -137,19 +137,6 @@ skip_covered = false
 [tool.ruff]
 target-version = "py311"
 line-length = 120
-indent-width = 4
-respect-gitignore = true
-extend-exclude = [
-    "__pycache__",
-    ".pytest_cache",
-    "build",
-    "dist",
-    ".venv",
-    ".env",
-    "htmlcov",
-]
-# Enable unsafe fixes by default
-unsafe-fixes = true
 
 [tool.ruff.lint]
 select = [
@@ -169,38 +156,36 @@ select = [
     "PTH", # flake8-use-pathlib
     "TCH", # flake8-type-checking
 ]
-ignore = [
+ignore =[
     "E501",   # Line too long (handled by formatter)
-    "E741",   # Ambiguous variable name
-    "B008",   # Do not perform function calls in argument defaults
-    "B017",   # Assert raises on Exception - sometimes needed for testing
-    "T201",   # Print found (allow print statements)
-    "RUF012", # Mutable class attributes should be annotated with `typing.ClassVar`
-    "TC001", # Move typing imports to TYPE_CHECKING block (can cause issues with Pydantic)
-    "TC002", # Move third-party imports to TYPE_CHECKING block (can cause issues with Pydantic)
-    "TC003", # Move standard library imports to TYPE_CHECKING block (can cause issues with Pydantic)
     "N818",   # Exception name should be named with an Error suffix (backwards compatibility)
 ]
-# Automatically fix even unsafe fixes
-fixable = ["ALL"]
-unfixable = []
+# Your existing ignores + a few additions
+extend-ignore = [
+    "S101", # Assert statements (tests need them)
+    "S608", # SQL injection (psycopg handles this)
+]
 
-[tool.ruff.lint.isort]
-known-first-party = ["fastapi_testing"]
-force-single-line = false
-combine-as-imports = true
-split-on-trailing-comma = true
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = [
+    "B017",   # Assert raises on Exception - sometimes needed for testing
+    "C901", # Allow complex functions
+    "S101", # Allow assert statements
+    "S106", # Allow hardcoded passwords in test fixtures
+    "S105", # Allow hardcoded secrets in tests
+    "T201",   # Print found (allow print statements)
+]
+"examples/*" = [
+    "T201", # Allow print statements in examples
+    "T203", # Allow pprint in examples
+    "S106", # Allow hardcoded passwords in examples
+]
 
 [tool.ruff.lint.pyupgrade]
-keep-runtime-typing = true
+keep-runtime-typing = true  # For Pydantic
 
 [tool.ruff.lint.pep8-naming]
-# Allow Pydantic's model_* attributes
-ignore-names = ["model_*"]
-
-[tool.ruff.lint.mccabe]
-# Maximum McCabe complexity
-max-complexity = 10
+ignore-names = ["model_*"]  # For Pydantic models
 
 [tool.ruff.format]
 quote-style = "double"

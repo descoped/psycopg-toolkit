@@ -151,12 +151,14 @@ async def test_cleanup_closes_pool(setup_mock_pool):
 
 @pytest.mark.asyncio
 async def test_pool_size_limits(db_settings):
-    with patch.object(Database, "ping_postgres", return_value=True), \
-         patch("psycopg_toolkit.core.database.AsyncConnectionPool", autospec=True) as pool_mock:
-            database = Database(db_settings)
-            await database.get_pool()
+    with (
+        patch.object(Database, "ping_postgres", return_value=True),
+        patch("psycopg_toolkit.core.database.AsyncConnectionPool", autospec=True) as pool_mock,
+    ):
+        database = Database(db_settings)
+        await database.get_pool()
 
-            pool_mock.assert_called_once()
-            call_kwargs = pool_mock.call_args.kwargs
-            assert call_kwargs["min_size"] == db_settings.min_pool_size
-            assert call_kwargs["max_size"] == db_settings.max_pool_size
+        pool_mock.assert_called_once()
+        call_kwargs = pool_mock.call_args.kwargs
+        assert call_kwargs["min_size"] == db_settings.min_pool_size
+        assert call_kwargs["max_size"] == db_settings.max_pool_size

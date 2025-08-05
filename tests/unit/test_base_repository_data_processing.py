@@ -52,7 +52,7 @@ class TestBaseRepositoryDataProcessing:
             model_class=SampleJSONModel,
             primary_key="id",
             json_fields=["metadata", "tags", "settings"],  # Explicitly set JSON fields
-            auto_detect_json=False  # Disable auto-detection
+            auto_detect_json=False,  # Disable auto-detection
         )
         # This will use custom JSON processing, not psycopg adapters
         return repo
@@ -100,7 +100,7 @@ class TestBaseRepositoryDataProcessing:
             model_class=SampleJSONModel,
             primary_key="id",
             auto_detect_json=False,  # Disable auto-detection
-            json_fields=None  # No explicit JSON fields
+            json_fields=None,  # No explicit JSON fields
         )
         # This should enable psycopg adapters
 

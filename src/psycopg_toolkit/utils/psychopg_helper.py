@@ -73,9 +73,7 @@ class PsycopgHelper:
         select_columns = SQL("*") if not columns else SQL(", ").join(map(Identifier, columns))
 
         if where_clause:
-            conditions = SQL(" AND ").join(
-                [SQL("{} = {}").format(Identifier(k), Placeholder()) for k in where_clause]
-            )
+            conditions = SQL(" AND ").join([SQL("{} = {}").format(Identifier(k), Placeholder()) for k in where_clause])
             where_sql = SQL(" WHERE {}").format(conditions)
         else:
             where_sql = SQL("")

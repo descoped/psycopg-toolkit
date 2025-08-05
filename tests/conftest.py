@@ -29,6 +29,7 @@ def postgres_container() -> Generator[PostgresContainer, None, None]:
 
         # Create tables using sync connection
         from pathlib import Path
+
         conn_str = f"postgresql://{container.username}:{container.password}@{container.get_container_host_ip()}:{container.get_exposed_port(5432)}/{container.dbname}"
         with psycopg.connect(conn_str) as conn, conn.cursor() as cur:
             sql_path = Path(__file__).parent / "sql" / "init_test_schema.sql"
@@ -196,55 +197,107 @@ async def jsonb_schema(postgres_container, test_settings):
     async with db.connection() as conn, conn.cursor() as cur:
         # Create all JSONB test tables
         await cur.execute("""
-                CREATE TABLE IF NOT EXISTS user_profiles (
-                    id UUID PRIMARY KEY,
-                    username VARCHAR(100) NOT NULL,
-                    email VARCHAR(255) NOT NULL,
-                    metadata JSONB NOT NULL,
-                    preferences JSONB NOT NULL,
-                    tags JSONB NOT NULL,
-                    profile_data JSONB,
-                    created_at TIMESTAMP NOT NULL,
-                    is_active BOOLEAN NOT NULL,
-                    age INTEGER
-                );
+                          CREATE TABLE IF NOT EXISTS user_profiles
+                          (
+                              id
+                              UUID
+                              PRIMARY
+                              KEY,
+                              username
+                              VARCHAR
+                          (
+                              100
+                          ) NOT NULL,
+                              email VARCHAR
+                          (
+                              255
+                          ) NOT NULL,
+                              metadata JSONB NOT NULL,
+                              preferences JSONB NOT NULL,
+                              tags JSONB NOT NULL,
+                              profile_data JSONB,
+                              created_at TIMESTAMP NOT NULL,
+                              is_active BOOLEAN NOT NULL,
+                              age INTEGER
+                              );
 
-                CREATE TABLE IF NOT EXISTS products (
-                    id SERIAL PRIMARY KEY,
-                    name VARCHAR(255) NOT NULL,
-                    price NUMERIC(10,2) NOT NULL,
-                    specifications JSONB NOT NULL,
-                    categories JSONB NOT NULL,
-                    inventory JSONB NOT NULL,
-                    reviews JSONB NOT NULL,
-                    sku VARCHAR(100) NOT NULL,
-                    in_stock BOOLEAN NOT NULL
-                );
+                          CREATE TABLE IF NOT EXISTS products
+                          (
+                              id
+                              SERIAL
+                              PRIMARY
+                              KEY,
+                              name
+                              VARCHAR
+                          (
+                              255
+                          ) NOT NULL,
+                              price NUMERIC
+                          (
+                              10,
+                              2
+                          ) NOT NULL,
+                              specifications JSONB NOT NULL,
+                              categories JSONB NOT NULL,
+                              inventory JSONB NOT NULL,
+                              reviews JSONB NOT NULL,
+                              sku VARCHAR
+                          (
+                              100
+                          ) NOT NULL,
+                              in_stock BOOLEAN NOT NULL
+                              );
 
-                CREATE TABLE IF NOT EXISTS configurations (
-                    id SERIAL PRIMARY KEY,
-                    name VARCHAR(255) NOT NULL,
-                    settings JSONB NOT NULL,
-                    feature_flags JSONB NOT NULL,
-                    allowed_values JSONB NOT NULL,
-                    metadata JSONB,
-                    empty_dict JSONB NOT NULL,
-                    empty_list JSONB NOT NULL
-                );
+                          CREATE TABLE IF NOT EXISTS configurations
+                          (
+                              id
+                              SERIAL
+                              PRIMARY
+                              KEY,
+                              name
+                              VARCHAR
+                          (
+                              255
+                          ) NOT NULL,
+                              settings JSONB NOT NULL,
+                              feature_flags JSONB NOT NULL,
+                              allowed_values JSONB NOT NULL,
+                              metadata JSONB,
+                              empty_dict JSONB NOT NULL,
+                              empty_list JSONB NOT NULL
+                              );
 
-                -- Additional tables for edge case testing
-                CREATE TABLE IF NOT EXISTS test_json_types (
-                    id SERIAL PRIMARY KEY,
-                    json_data JSON,
-                    jsonb_data JSONB
-                );
+                          -- Additional tables for edge case testing
+                          CREATE TABLE IF NOT EXISTS test_json_types
+                          (
+                              id
+                              SERIAL
+                              PRIMARY
+                              KEY,
+                              json_data
+                              JSON,
+                              jsonb_data
+                              JSONB
+                          );
 
-                CREATE TABLE IF NOT EXISTS transactions_test (
-                    id SERIAL PRIMARY KEY,
-                    data JSONB NOT NULL,
-                    version INTEGER NOT NULL DEFAULT 1
-                );
-            """)
+                          CREATE TABLE IF NOT EXISTS transactions_test
+                          (
+                              id
+                              SERIAL
+                              PRIMARY
+                              KEY,
+                              data
+                              JSONB
+                              NOT
+                              NULL,
+                              version
+                              INTEGER
+                              NOT
+                              NULL
+                              DEFAULT
+                              1
+                          );
+                          """)
 
     yield
 

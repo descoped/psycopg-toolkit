@@ -21,9 +21,7 @@ class TestJSONBEdgeCases:
 
         # Create large nested structure
         large_data = {
-            "level1": {
-                f"key_{i}": {"level2": {f"subkey_{j}": list(range(10)) for j in range(10)}} for i in range(10)
-            }
+            "level1": {f"key_{i}": {"level2": {f"subkey_{j}": list(range(10)) for j in range(10)}} for i in range(10)}
         }
 
         # Should handle large documents
