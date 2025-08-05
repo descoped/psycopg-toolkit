@@ -16,10 +16,9 @@ def test_database_settings(test_settings: DatabaseSettings):
 
 @pytest.mark.asyncio
 async def test_db_pool(db_pool: AsyncConnectionPool):
-    async with db_pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT 1")
-            print("SELECT 1: success")
+    async with db_pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute("SELECT 1")
+        print("SELECT 1: success")
 
 
 @pytest.mark.asyncio
@@ -51,10 +50,9 @@ async def test_with_transaction(transaction_manager: TransactionManager):
 async def test_users(transaction_manager: TransactionManager, setup_test_db):
     test_user = setup_test_db
 
-    async with transaction_manager.transaction() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT id, email FROM users WHERE id = %s", (test_user['id'],))
-            result = await cur.fetchone()
-            assert result is not None
-            assert str(result[0]) == str(test_user['id'])
-            assert result[1] == test_user['email']
+    async with transaction_manager.transaction() as conn, conn.cursor() as cur:
+        await cur.execute("SELECT id, email FROM users WHERE id = %s", (test_user["id"],))
+        result = await cur.fetchone()
+        assert result is not None
+        assert str(result[0]) == str(test_user["id"])
+        assert result[1] == test_user["email"]

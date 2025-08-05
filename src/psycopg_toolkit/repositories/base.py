@@ -1,19 +1,25 @@
 import logging
-from typing import TypeVar, Generic, List, Optional, Dict, Any
+from typing import Any, Generic, TypeVar
 
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
-from psycopg.sql import SQL
+from psycopg.sql import SQL, Identifier
+from psycopg.types.json import Json
 
 from ..exceptions import (
+    JSONDeserializationError,
+    JSONProcessingError,
+    JSONSerializationError,
+    OperationError,
     RecordNotFoundError,
-    OperationError
 )
 from ..utils import PsycopgHelper
+from ..utils.json_handler import JSONHandler
+from ..utils.type_inspector import TypeInspector
 
 # Generic type variables for model and primary key
-T = TypeVar('T')
-K = TypeVar('K')
+T = TypeVar("T")
+K = TypeVar("K")
 
 logger = logging.getLogger(__name__)
 
@@ -35,36 +41,36 @@ class BaseRepository(Generic[T, K]):
         table_name (str): Name of the database table.
         model_class (type[T]): The Pydantic model class for type T.
         primary_key (str): Name of the primary key column in the table.
+        json_fields (Set[str]): Set of field names that should be treated as JSON.
+        auto_detect_json (bool): Whether to automatically detect JSON fields from type hints.
 
     Example:
         ```python
         class DocumentRepository(BaseRepository[Document, UUID]):
             def __init__(self, db_connection: AsyncConnection):
                 super().__init__(
-                    db_connection=db_connection,
-                    table_name="documents",
-                    model_class=Document,
-                    primary_key="document_id"
+                    db_connection=db_connection, table_name="documents", model_class=Document, primary_key="document_id"
                 )
+
 
         # Or with an integer primary key
         class UserRepository(BaseRepository[User, int]):
             def __init__(self, db_connection: AsyncConnection):
                 super().__init__(
-                    db_connection=db_connection,
-                    table_name="users",
-                    model_class=User,
-                    primary_key="user_id"
+                    db_connection=db_connection, table_name="users", model_class=User, primary_key="user_id"
                 )
         ```
     """
 
     def __init__(
-            self,
-            db_connection: AsyncConnection,
-            table_name: str,
-            model_class: type[T],
-            primary_key: str = "id"
+        self,
+        db_connection: AsyncConnection,
+        table_name: str,
+        model_class: type[T],
+        primary_key: str = "id",
+        json_fields: set[str] | None = None,
+        auto_detect_json: bool = True,
+        strict_json_processing: bool = False,
     ):
         """
         Initialize the base repository.
@@ -74,16 +80,211 @@ class BaseRepository(Generic[T, K]):
             table_name (str): Name of the database table being accessed.
             model_class (type[T]): The Pydantic model class used for type T.
             primary_key (str, optional): Name of the primary key column. Defaults to "id".
+            json_fields (Optional[Set[str]], optional): Explicit set of field names to treat as JSON.
+                If provided, overrides auto-detection. Defaults to None.
+            auto_detect_json (bool, optional): Whether to automatically detect JSON fields from
+                Pydantic type hints. Ignored if json_fields is provided. Defaults to True.
+            strict_json_processing (bool, optional): Whether to raise exceptions for JSON
+                deserialization errors instead of logging warnings. Defaults to False.
 
         Note:
             The model_class should be a Pydantic model that matches the database schema.
             The primary_key should match the actual primary key column name in the database.
             The primary key type K is inferred from the model's type hints.
+
+            JSON field detection:
+            - If json_fields is provided, those fields will be treated as JSON
+            - If json_fields is None and auto_detect_json is True, fields will be auto-detected
+            - If both are disabled, no JSON processing will occur
         """
         self.db_connection = db_connection
         self.table_name = table_name
         self.model_class = model_class
         self.primary_key = primary_key
+
+        # JSON field detection and configuration
+        if json_fields is not None:
+            self._json_fields = json_fields
+            logger.debug(f"Using explicit JSON fields for {table_name}: {json_fields}")
+        elif auto_detect_json:
+            self._json_fields = TypeInspector.detect_json_fields(model_class)
+            logger.debug(f"Auto-detected JSON fields for {table_name}: {self._json_fields}")
+        else:
+            self._json_fields = set()
+            logger.debug(f"JSON field processing disabled for {table_name}")
+
+        # Cache for performance and configuration
+        self._auto_detect_json = auto_detect_json
+        self._strict_json_processing = strict_json_processing
+
+        # Check if psycopg JSON adapters are enabled
+        self._use_psycopg_adapters = self._check_psycopg_adapters()
+
+    def _check_psycopg_adapters(self) -> bool:
+        """Check if psycopg JSON adapters are enabled on the connection.
+
+        Returns:
+            bool: True if psycopg JSON adapters are enabled, False otherwise.
+        """
+        # We use psycopg adapters when:
+        # 1. auto_detect_json is False AND no explicit json_fields are set
+        # This indicates the user wants psycopg to handle JSON automatically
+        #
+        # If explicit json_fields are provided, we use custom processing
+        # to have fine-grained control over which fields are processed
+        return not self._auto_detect_json and not self._json_fields
+
+    @property
+    def json_fields(self) -> set[str]:
+        """Get the set of field names that should be treated as JSON.
+
+        Returns:
+            Set of field names that are configured for JSON serialization/deserialization.
+        """
+        return self._json_fields.copy()
+
+    def _preprocess_data(self, data: dict[str, Any]) -> dict[str, Any]:  # noqa: C901
+        """Preprocess data by handling JSON fields according to processing mode.
+
+        In psycopg adapter mode, JSON fields are wrapped with Json() adapter.
+        In custom processing mode, JSON fields are serialized to strings.
+
+        Args:
+            data (Dict[str, Any]): The data dictionary to preprocess.
+
+        Returns:
+            Dict[str, Any]: The preprocessed data with JSON fields handled.
+
+        Example:
+            ```python
+            # With psycopg adapters:
+            data = {"metadata": {"key": "value"}}
+            processed = repo._preprocess_data(data)
+            # processed["metadata"] is now Json({"key": "value"})
+
+            # With custom processing:
+            data = {"metadata": {"key": "value"}}
+            processed = repo._preprocess_data(data)
+            # processed["metadata"] is now '{"key": "value"}'
+            ```
+        """
+        processed_data = data.copy()
+
+        # If using psycopg adapters, wrap ALL dict/list fields with Json() adapter
+        if self._use_psycopg_adapters:
+            for field_name, value in data.items():
+                if value is not None and isinstance(value, dict | list):
+                    processed_data[field_name] = Json(value)
+                    logger.debug(f"Wrapped JSON field '{field_name}' with psycopg Json adapter")
+            return processed_data
+
+        # For custom JSON processing, determine which fields need processing
+        json_fields = self._json_fields
+        if not json_fields and self._auto_detect_json:
+            json_fields = TypeInspector.detect_json_fields(self.model_class)
+
+        if not json_fields:
+            return data.copy()
+
+        # Custom JSON processing mode - serialize to strings
+        for field_name in json_fields:
+            if field_name in processed_data and processed_data[field_name] is not None:
+                value = processed_data[field_name]
+                if isinstance(value, dict | list):
+                    try:
+                        # Serialize to JSON string for manual processing
+                        serialized = JSONHandler.serialize(value)
+                        processed_data[field_name] = serialized
+                        logger.debug(f"Serialized JSON field '{field_name}' for {self.table_name}")
+                    except Exception as e:
+                        logger.error(f"Failed to serialize JSON field '{field_name}' in {self.table_name}: {e}")
+                        raise JSONSerializationError(
+                            f"JSON serialization failed for field '{field_name}': {e}",
+                            field_name=field_name,
+                            value=value,
+                            original_error=e,
+                        ) from e
+                elif not isinstance(value, str):
+                    # Value is not dict/list/str, try to serialize it anyway
+                    try:
+                        serialized = JSONHandler.serialize(value)
+                        processed_data[field_name] = serialized
+                        logger.debug(f"Serialized non-standard JSON field '{field_name}' for {self.table_name}")
+                    except Exception as e:
+                        logger.error(f"Failed to serialize JSON field '{field_name}' in {self.table_name}: {e}")
+                        raise JSONSerializationError(
+                            f"JSON serialization failed for field '{field_name}': {e}",
+                            field_name=field_name,
+                            value=value,
+                            original_error=e,
+                        ) from e
+
+        return processed_data
+
+    def _postprocess_data(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Postprocess data by deserializing JSON fields after database operations.
+
+        This method takes a dictionary of data retrieved from the database and
+        deserializes any fields that are configured as JSON fields using the JSONHandler.
+        Non-JSON fields are left unchanged.
+
+        Args:
+            data (Dict[str, Any]): The data dictionary to postprocess.
+
+        Returns:
+            Dict[str, Any]: The postprocessed data with JSON fields deserialized.
+
+        Note:
+            This method handles None values gracefully. When strict_json_processing is False
+            (default), it logs warnings for deserialization failures rather than raising
+            exceptions to prevent data retrieval failures. When strict_json_processing is True,
+            it raises JSONDeserializationError for any deserialization failures.
+
+        Example:
+            ```python
+            data = {
+                "name": "test",
+                "metadata": '{"key": "value"}',  # Will be deserialized
+                "value": 42,  # Will remain unchanged
+            }
+            processed = repo._postprocess_data(data)
+            # processed["metadata"] is now {"key": "value"}
+            ```
+        """
+        # If we're using psycopg adapters, the data is already deserialized
+        if self._use_psycopg_adapters:
+            return data.copy()
+
+        # Original logic for custom JSON processing
+        if not self._json_fields:
+            logger.debug(f"No JSON fields configured for {self.table_name}, skipping postprocessing")
+            return data.copy()
+
+        processed_data = data.copy()
+
+        for field_name in self._json_fields:
+            if field_name in processed_data and processed_data[field_name] is not None:
+                try:
+                    serialized_value = processed_data[field_name]
+                    deserialized_value = JSONHandler.deserialize(serialized_value)
+                    processed_data[field_name] = deserialized_value
+                    logger.debug(f"Deserialized JSON field '{field_name}' for {self.table_name}")
+                except Exception as e:
+                    if self._strict_json_processing:
+                        logger.error(f"Failed to deserialize JSON field '{field_name}' in {self.table_name}: {e}")
+                        raise JSONDeserializationError(
+                            f"JSON deserialization failed for field '{field_name}': {e}",
+                            field_name=field_name,
+                            json_data=str(serialized_value) if serialized_value is not None else None,
+                            original_error=e,
+                        ) from e
+                    else:
+                        logger.warning(f"Failed to deserialize JSON field '{field_name}' in {self.table_name}: {e}")
+                        # Keep the original value to prevent data loss
+                        logger.warning(f"Keeping original value for field '{field_name}' in {self.table_name}")
+
+        logger.debug(f"Postprocessed {len(self._json_fields)} JSON fields for {self.table_name}")
+        return processed_data
 
     async def create(self, item: T) -> T:
         """
@@ -97,31 +298,41 @@ class BaseRepository(Generic[T, K]):
 
         Raises:
             HTTPException: If the creation fails or database error occurs.
-            ValueError: If the database operation doesn't return a result.
+            OperationError: If the database operation doesn't return a result.
+            JSONSerializationError: If JSON serialization fails for any field.
 
         Example:
             ```python
             new_item = ItemModel(name="test", description="test item")
             created_item = await repo.create(new_item)
             ```
+
+        Note:
+            If the model has JSON fields, they will be automatically serialized before
+            insertion and deserialized when returning the created record.
         """
         try:
             data = item.model_dump()
-            insert_query = PsycopgHelper.build_insert_query(self.table_name, data)
+            # Preprocess data to serialize JSON fields
+            processed_data = self._preprocess_data(data)
+            insert_query = PsycopgHelper.build_insert_query(self.table_name, processed_data)
 
             async with self.db_connection.cursor(row_factory=dict_row) as cur:
-                await cur.execute(insert_query + SQL(" RETURNING *"), list(data.values()))
+                await cur.execute(insert_query + SQL(" RETURNING *"), list(processed_data.values()))
                 result = await cur.fetchone()
                 if not result:
                     raise OperationError(f"Failed to create {self.table_name} record")
-                return self.model_class(**result)
+
+                # Postprocess the result to deserialize JSON fields
+                postprocessed_result = self._postprocess_data(dict(result))
+                return self.model_class(**postprocessed_result)
         except Exception as e:
             logger.error(f"Error in create: {e}")
-            if isinstance(e, OperationError):
+            if isinstance(e, OperationError | JSONProcessingError):
                 raise
-            raise OperationError(f"Failed to create record: {str(e)}") from e
+            raise OperationError(f"Failed to create record: {e!s}") from e
 
-    async def create_bulk(self, items: List[T], batch_size: int = 100) -> List[T]:
+    async def create_bulk(self, items: list[T], batch_size: int = 100) -> list[T]:
         """
         Create multiple records in batches.
 
@@ -134,6 +345,8 @@ class BaseRepository(Generic[T, K]):
 
         Raises:
             HTTPException: If the bulk creation fails or database error occurs.
+            OperationError: If the database operation fails.
+            JSONSerializationError: If JSON serialization fails for any record.
 
         Example:
             ```python
@@ -144,34 +357,40 @@ class BaseRepository(Generic[T, K]):
         Note:
             Uses database transactions to ensure all-or-nothing batch operations.
             Large lists are automatically processed in batches for better performance.
+            If the model has JSON fields, they will be automatically serialized before
+            insertion and deserialized when returning the created records.
         """
         all_results = []
         try:
             async with self.db_connection.transaction():
                 for i in range(0, len(items), batch_size):
-                    batch = items[i:i + batch_size]
+                    batch = items[i : i + batch_size]
                     data_list = [item.model_dump() for item in batch]
                     if not data_list:
                         continue
 
+                    # Preprocess each item's data to serialize JSON fields
+                    processed_data_list = [self._preprocess_data(data) for data in data_list]
+
                     batch_insert_query = PsycopgHelper.build_insert_query(
-                        self.table_name,
-                        data_list[0],
-                        batch_size=len(data_list)
+                        self.table_name, processed_data_list[0], batch_size=len(processed_data_list)
                     )
-                    batch_values = [val for data in data_list for val in data.values()]
+                    batch_values = [val for data in processed_data_list for val in data.values()]
 
                     async with self.db_connection.cursor(row_factory=dict_row) as cur:
                         full_query = batch_insert_query + SQL(" RETURNING *")
                         await cur.execute(full_query, batch_values)
                         results = await cur.fetchall()
-                        all_results.extend([self.model_class(**row) for row in results])
+
+                        # Postprocess each result to deserialize JSON fields
+                        postprocessed_results = [self._postprocess_data(dict(row)) for row in results]
+                        all_results.extend([self.model_class(**row) for row in postprocessed_results])
             return all_results
         except Exception as e:
             logger.error(f"Error in create_bulk: {e}")
-            raise OperationError(f"Failed to create records in bulk: {str(e)}") from e
+            raise OperationError(f"Failed to create records in bulk: {e!s}") from e
 
-    async def get_by_id(self, record_id: K) -> Optional[T]:
+    async def get_by_id(self, record_id: K) -> T | None:
         """
         Retrieve a record by its ID.
 
@@ -183,34 +402,39 @@ class BaseRepository(Generic[T, K]):
 
         Raises:
             HTTPException: If the database query fails.
+            JSONDeserializationError: If JSON deserialization fails and strict_json_processing is True.
 
         Example:
             ```python
             # With UUID primary key
-            item = await repo.get_by_id(uuid.UUID('...'))
+            item = await repo.get_by_id(uuid.UUID("..."))
 
             # With integer primary key
             user = await user_repo.get_by_id(123)
             ```
+
+        Note:
+            If the model has JSON fields, they will be automatically deserialized
+            from the database representation before creating the model instance.
         """
         try:
-            select_query = PsycopgHelper.build_select_query(
-                self.table_name,
-                where_clause={self.primary_key: record_id}
-            )
+            select_query = PsycopgHelper.build_select_query(self.table_name, where_clause={self.primary_key: record_id})
             async with self.db_connection.cursor(row_factory=dict_row) as cur:
                 await cur.execute(select_query, [record_id])
                 result = await cur.fetchone()
                 if not result:
                     raise RecordNotFoundError(f"Record with id {record_id} not found")
-                return self.model_class(**result)
+
+                # Postprocess the result to deserialize JSON fields
+                postprocessed_result = self._postprocess_data(dict(result))
+                return self.model_class(**postprocessed_result)
         except Exception as e:
             logger.error(f"Error in get_by_id: {e}")
-            if isinstance(e, RecordNotFoundError):
+            if isinstance(e, RecordNotFoundError | JSONProcessingError):
                 raise
-            raise OperationError(f"Failed to get record: {str(e)}") from e
+            raise OperationError(f"Failed to get record: {e!s}") from e
 
-    async def get_all(self) -> List[T]:
+    async def get_all(self) -> list[T]:
         """
         Retrieve all records from the table.
 
@@ -219,6 +443,7 @@ class BaseRepository(Generic[T, K]):
 
         Raises:
             HTTPException: If the database query fails.
+            JSONDeserializationError: If JSON deserialization fails and strict_json_processing is True.
 
         Example:
             ```python
@@ -229,17 +454,27 @@ class BaseRepository(Generic[T, K]):
 
         Warning:
             Use with caution on large tables as it loads all records into memory.
+
+        Note:
+            If the model has JSON fields, they will be automatically deserialized
+            from the database representation before creating the model instances.
         """
         try:
             async with self.db_connection.cursor(row_factory=dict_row) as cur:
-                await cur.execute(f"SELECT * FROM {self.table_name}")
+                query = SQL("SELECT * FROM {}").format(Identifier(self.table_name))
+                await cur.execute(query)
                 rows = await cur.fetchall()
-                return [self.model_class(**row) for row in rows]
+
+                # Postprocess each row to deserialize JSON fields
+                postprocessed_rows = [self._postprocess_data(dict(row)) for row in rows]
+                return [self.model_class(**row) for row in postprocessed_rows]
         except Exception as e:
             logger.error(f"Error in get_all: {e}")
-            raise OperationError(f"Failed to get all records: {str(e)}") from e
+            if isinstance(e, JSONProcessingError):
+                raise
+            raise OperationError(f"Failed to get all records: {e!s}") from e
 
-    async def update(self, record_id: K, data: Dict[str, Any]) -> T:
+    async def update(self, record_id: K, data: dict[str, Any]) -> T:
         """
         Update a record by its ID.
 
@@ -252,43 +487,44 @@ class BaseRepository(Generic[T, K]):
 
         Raises:
             HTTPException: If the update fails or database error occurs.
-            ValueError: If the record is not found.
+            RecordNotFoundError: If the record is not found.
+            JSONSerializationError: If JSON serialization fails for any field.
+            JSONDeserializationError: If JSON deserialization fails and strict_json_processing is True.
 
         Example:
             ```python
             # With UUID primary key
-            updated_doc = await doc_repo.update(
-                uuid.UUID('...'),
-                {"name": "new name"}
-            )
+            updated_doc = await doc_repo.update(uuid.UUID("..."), {"name": "new name"})
 
             # With integer primary key
-            updated_user = await user_repo.update(
-                123,
-                {"email": "new@email.com"}
-            )
+            updated_user = await user_repo.update(123, {"email": "new@email.com"})
             ```
+
+        Note:
+            If the data contains JSON fields, they will be automatically serialized before
+            the update and deserialized when returning the updated record.
         """
         try:
+            # Preprocess data to serialize JSON fields
+            processed_data = self._preprocess_data(data)
             update_query = PsycopgHelper.build_update_query(
-                self.table_name,
-                data,
-                where_clause={self.primary_key: record_id}
+                self.table_name, processed_data, where_clause={self.primary_key: record_id}
             )
-            values = list(data.values()) + [record_id]
+            values = [*list(processed_data.values()), record_id]
             async with self.db_connection.cursor(row_factory=dict_row) as cur:
                 await cur.execute(update_query + SQL(" RETURNING *"), values)
                 result = await cur.fetchone()
                 if not result:
                     raise RecordNotFoundError(f"Record with id {record_id} not found")
-                if result:
-                    return self.model_class(**result)
-                raise ValueError(f"Failed to update {self.table_name} record")
+
+                # Postprocess the result to deserialize JSON fields
+                postprocessed_result = self._postprocess_data(dict(result))
+                return self.model_class(**postprocessed_result)
         except Exception as e:
             logger.error(f"Error in update: {e}")
-            if isinstance(e, RecordNotFoundError):
+            if isinstance(e, RecordNotFoundError | JSONProcessingError):
                 raise
-            raise OperationError(f"Failed to update record: {str(e)}") from e
+            raise OperationError(f"Failed to update record: {e!s}") from e
 
     async def delete(self, record_id: K) -> None:
         """
@@ -303,7 +539,7 @@ class BaseRepository(Generic[T, K]):
         Example:
             ```python
             # With UUID primary key
-            await doc_repo.delete(uuid.UUID('...'))
+            await doc_repo.delete(uuid.UUID("..."))
 
             # With integer primary key
             await user_repo.delete(123)
@@ -313,10 +549,7 @@ class BaseRepository(Generic[T, K]):
             This is a hard delete. Consider implementing soft delete if needed.
         """
         try:
-            delete_query = PsycopgHelper.build_delete_query(
-                self.table_name,
-                where_clause={self.primary_key: record_id}
-            )
+            delete_query = PsycopgHelper.build_delete_query(self.table_name, where_clause={self.primary_key: record_id})
             async with self.db_connection.cursor() as cur:
                 await cur.execute(delete_query, [record_id])
                 if cur.rowcount == 0:
@@ -325,7 +558,7 @@ class BaseRepository(Generic[T, K]):
             logger.error(f"Error in delete: {e}")
             if isinstance(e, RecordNotFoundError):
                 raise
-            raise OperationError(f"Failed to delete record: {str(e)}") from e
+            raise OperationError(f"Failed to delete record: {e!s}") from e
 
     async def exists(self, record_id: K) -> bool:
         """
@@ -343,7 +576,7 @@ class BaseRepository(Generic[T, K]):
         Example:
             ```python
             # With UUID primary key
-            if await doc_repo.exists(uuid.UUID('...')):
+            if await doc_repo.exists(uuid.UUID("...")):
                 print("Document exists")
 
             # With integer primary key
@@ -353,11 +586,8 @@ class BaseRepository(Generic[T, K]):
         """
         try:
             async with self.db_connection.cursor() as cur:
-                await cur.execute(
-                    f"SELECT 1 FROM {self.table_name} WHERE {self.primary_key} = %s",
-                    [record_id]
-                )
+                await cur.execute(f"SELECT 1 FROM {self.table_name} WHERE {self.primary_key} = %s", [record_id])
                 return bool(await cur.fetchone())
         except Exception as e:
             logger.error(f"Error in exists: {e}")
-            raise OperationError(f"Failed to check record existence: {str(e)}") from e
+            raise OperationError(f"Failed to check record existence: {e!s}") from e

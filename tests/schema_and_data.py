@@ -1,6 +1,6 @@
 from psycopg import AsyncConnection
 
-from psycopg_toolkit.core.transaction import SchemaManager, DataManager
+from psycopg_toolkit.core.transaction import DataManager, SchemaManager
 
 
 class UserSchemaManager(SchemaManager[None]):
@@ -24,10 +24,7 @@ class TestUserData(DataManager[dict]):
     async def setup_data(self, conn: AsyncConnection) -> dict:
         async with conn.cursor() as cur:
             for user in self.test_users:
-                await cur.execute(
-                    "INSERT INTO users (id, email) VALUES (%s, %s)",
-                    (user['id'], user['email'])
-                )
+                await cur.execute("INSERT INTO users (id, email) VALUES (%s, %s)", (user["id"], user["email"]))
         return {"users": self.test_users}
 
     async def cleanup_data(self, conn: AsyncConnection) -> None:

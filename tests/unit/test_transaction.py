@@ -1,16 +1,11 @@
-from contextlib import AbstractAsyncContextManager
+from contextlib import AbstractAsyncContextManager, suppress
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from psycopg.errors import OperationalError
 from psycopg_pool import AsyncConnectionPool
 
-from psycopg_toolkit import (
-    Database,
-    DatabaseSettings,
-    TransactionManager,
-    DatabaseConnectionError
-)
+from psycopg_toolkit import Database, DatabaseConnectionError, DatabaseSettings, TransactionManager
 
 
 class MockTransaction(AbstractAsyncContextManager):
@@ -40,7 +35,7 @@ def db_settings():
         password="test_pass",
         min_pool_size=1,
         max_pool_size=5,
-        pool_timeout=5
+        pool_timeout=5,
     )
 
 
@@ -60,15 +55,13 @@ async def mock_pool():
 
 @pytest.fixture
 async def database(db_settings, mock_pool):
-    with patch.object(Database, 'ping_postgres', return_value=True):
+    with patch.object(Database, "ping_postgres", return_value=True):
         db = Database(db_settings)
         db._pool = mock_pool
         db._pool.closed = False
         yield db
-        try:
+        with suppress(Exception):
             await db.cleanup()
-        except Exception:
-            pass
 
 
 @pytest.fixture
@@ -89,23 +82,25 @@ async def test_transaction_manager_exists(database):
 
 
 @pytest.mark.asyncio
-async def test_successful_transaction(setup_mock_pool):
+@patch("psycopg_toolkit.core.database.json")
+async def test_successful_transaction(mock_json, setup_mock_pool):
     database = setup_mock_pool
     tm = await database.get_transaction_manager()
     async with tm.transaction() as conn:
         assert isinstance(conn, MockConnection)
-        assert hasattr(conn, '_transaction')
+        assert hasattr(conn, "_transaction")
 
 
 @pytest.mark.asyncio
-async def test_transaction_rollback_on_error(setup_mock_pool):
+@patch("psycopg_toolkit.core.database.json")
+async def test_transaction_rollback_on_error(mock_json, setup_mock_pool):
     database = setup_mock_pool
     tm = await database.get_transaction_manager()
 
     async def run_test():
         async with tm.transaction() as conn:
             assert isinstance(conn, MockConnection)
-            assert hasattr(conn, '_transaction')
+            assert hasattr(conn, "_transaction")
             raise ValueError("Test error")
 
     with pytest.raises(DatabaseConnectionError) as excinfo:
@@ -118,7 +113,8 @@ async def test_transaction_rollback_on_error(setup_mock_pool):
 
 
 @pytest.mark.asyncio
-async def test_transaction_connection_error(setup_mock_pool):
+@patch("psycopg_toolkit.core.database.json")
+async def test_transaction_connection_error(mock_json, setup_mock_pool):
     database = setup_mock_pool
     conn_cm = AsyncMock()
     conn_cm.__aenter__.side_effect = OperationalError("Connection failed")
@@ -131,17 +127,18 @@ async def test_transaction_connection_error(setup_mock_pool):
 
 
 @pytest.mark.asyncio
-async def test_nested_transaction(setup_mock_pool):
+@patch("psycopg_toolkit.core.database.json")
+async def test_nested_transaction(mock_json, setup_mock_pool):
     database = setup_mock_pool
     tm = await database.get_transaction_manager()
 
     async with tm.transaction() as outer_conn:
         assert isinstance(outer_conn, MockConnection)
-        assert hasattr(outer_conn, '_transaction')
+        assert hasattr(outer_conn, "_transaction")
 
         async with tm.transaction() as inner_conn:
             assert inner_conn is outer_conn
-            assert hasattr(inner_conn, '_transaction')
+            assert hasattr(inner_conn, "_transaction")
 
 
 @pytest.mark.asyncio
@@ -154,12 +151,14 @@ async def test_cleanup_closes_pool(setup_mock_pool):
 
 @pytest.mark.asyncio
 async def test_pool_size_limits(db_settings):
-    with patch.object(Database, 'ping_postgres', return_value=True):
-        with patch('psycopg_toolkit.core.database.AsyncConnectionPool', autospec=True) as pool_mock:
-            database = Database(db_settings)
-            await database.get_pool()
+    with (
+        patch.object(Database, "ping_postgres", return_value=True),
+        patch("psycopg_toolkit.core.database.AsyncConnectionPool", autospec=True) as pool_mock,
+    ):
+        database = Database(db_settings)
+        await database.get_pool()
 
-            pool_mock.assert_called_once()
-            call_kwargs = pool_mock.call_args.kwargs
-            assert call_kwargs['min_size'] == db_settings.min_pool_size
-            assert call_kwargs['max_size'] == db_settings.max_pool_size
+        pool_mock.assert_called_once()
+        call_kwargs = pool_mock.call_args.kwargs
+        assert call_kwargs["min_size"] == db_settings.min_pool_size
+        assert call_kwargs["max_size"] == db_settings.max_pool_size

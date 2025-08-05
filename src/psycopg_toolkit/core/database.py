@@ -1,18 +1,19 @@
 import logging
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator, Callable, List, Optional, Awaitable, Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .transaction import TransactionManager
 
 import psycopg
 from psycopg import AsyncConnection
+from psycopg.types import json
 from psycopg_pool import AsyncConnectionPool
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from ..exceptions import DatabaseConnectionError, DatabaseNotAvailable, DatabasePoolError
 from .config import DatabaseSettings
-from ..exceptions import (
-    DatabaseConnectionError,
-    DatabaseNotAvailable,
-    DatabasePoolError
-)
 
 logger = logging.getLogger(__name__)
 
@@ -44,14 +45,35 @@ class Database:
             raise ValueError("Invalid database settings: host, dbname, and user are required")
 
         self._settings = settings
-        self._pool: Optional[AsyncConnectionPool] = None
-        self._init_callbacks: List[Callable[[AsyncConnectionPool], Awaitable[None]]] = []
-        self._transaction_manager = None
+        self._pool: AsyncConnectionPool | None = None
+        self._init_callbacks: list[Callable[[AsyncConnectionPool], Awaitable[None]]] = []
+        self._transaction_manager: TransactionManager | None = None
 
-    @retry(
-        stop=stop_after_attempt(5),
-        wait=wait_exponential(multiplier=1, min=4, max=10)
-    )
+    def _configure_json_adapters(self, connection: AsyncConnection) -> None:
+        """Configure psycopg JSON adapters for JSONB support.
+
+        This method sets up automatic JSON/JSONB handling using psycopg's built-in
+        JSON adapters, which provide seamless conversion between Python objects
+        and PostgreSQL JSON/JSONB data types.
+
+        Args:
+            connection: The database connection to configure
+
+        Note:
+            This is called automatically when enable_json_adapters is True in settings.
+            The adapters handle serialization/deserialization transparently at the
+            driver level, which can be more efficient than manual processing.
+        """
+        if self._settings.enable_json_adapters:
+            logger.debug("Configuring JSON adapters for connection")
+            # Set up JSON adapters to handle JSONB columns automatically
+            json.set_json_loads(loads=json.json.loads, context=connection)
+            json.set_json_dumps(dumps=json.json.dumps, context=connection)
+            logger.debug("JSON adapters configured successfully")
+        else:
+            logger.debug("JSON adapters disabled in settings")
+
+    @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=4, max=10))
     def ping_postgres(self) -> bool:
         """Test database connectivity with exponential backoff retry.
 
@@ -69,7 +91,7 @@ class Database:
             return True
         except Exception as e:
             logger.error(f"Could not connect to PostgreSQL: {e}")
-            raise DatabaseConnectionError("Failed to connect to database", e)
+            raise DatabaseConnectionError("Failed to connect to database", e) from e
 
     async def create_pool(self) -> AsyncConnectionPool:
         """Create and initialize connection pool.
@@ -91,7 +113,7 @@ class Database:
                 min_size=self._settings.min_pool_size,
                 max_size=self._settings.max_pool_size,
                 timeout=self._settings.pool_timeout,
-                open=False
+                open=False,
             )
 
             try:
@@ -121,10 +143,7 @@ class Database:
                 raise DatabaseNotAvailable("Database is not available")
         return self._pool
 
-    async def register_init_callback(
-            self,
-            callback: Callable[[AsyncConnectionPool], Awaitable[None]]
-    ) -> None:
+    async def register_init_callback(self, callback: Callable[[AsyncConnectionPool], Awaitable[None]]) -> None:
         """Register callback to run during database initialization.
 
         Args:
@@ -134,7 +153,7 @@ class Database:
 
     @asynccontextmanager
     async def connection(self) -> AsyncGenerator[AsyncConnection, None]:
-        """Get database connection with configured statement timeout.
+        """Get database connection with configured statement timeout and JSON adapters.
 
         Yields:
             AsyncConnection: Database connection
@@ -144,10 +163,11 @@ class Database:
         """
         pool = await self.get_pool()
         async with pool.connection() as conn:
+            # Configure JSON adapters if enabled
+            self._configure_json_adapters(conn)
+
             if self._settings.statement_timeout:
-                await conn.execute(
-                    f"SET statement_timeout = {int(self._settings.statement_timeout * 1000)}"
-                )
+                await conn.execute(f"SET statement_timeout = {int(self._settings.statement_timeout * 1000)}")
             yield conn
 
     async def init_db(self) -> None:
@@ -200,11 +220,10 @@ class Database:
         """
         try:
             pool = await self.get_pool()
-            async with pool.connection() as conn:
-                async with conn.cursor() as cur:
-                    await cur.execute("SELECT 1")
-                    result = await cur.fetchone()
-                    return result is not None and result[0] == 1
+            async with pool.connection() as conn, conn.cursor() as cur:
+                await cur.execute("SELECT 1")
+                result = await cur.fetchone()
+                return result is not None and result[0] == 1
         except Exception as e:
             logger.error(f"Pool health check failed: {e}")
             return False
@@ -217,26 +236,30 @@ class Database:
         """
         return self._pool is not None and not self._pool.closed
 
-    async def get_transaction_manager(self) -> Any:
+    async def get_transaction_manager(self) -> "TransactionManager":
         """Get existing transaction manager or create new one.
 
         Returns:
             TransactionManager: Active transaction manager
         """
         if not self._transaction_manager:
-            from .transaction import TransactionManager
+            from .factory import create_transaction_manager
+
             pool = await self.get_pool()
-            self._transaction_manager = TransactionManager(pool)
+            self._transaction_manager = create_transaction_manager(pool, self._configure_json_adapters)
         return self._transaction_manager
 
     @asynccontextmanager
     async def transaction(self) -> AsyncGenerator[AsyncConnection, None]:
-        """Get connection with transaction context.
+        """Get connection with transaction context and JSON adapters.
 
         Yields:
             AsyncConnection: Database connection in transaction
         """
         pool = await self.get_pool()
         async with pool.connection() as conn:
+            # Configure JSON adapters if enabled
+            self._configure_json_adapters(conn)
+
             async with conn.transaction():
                 yield conn

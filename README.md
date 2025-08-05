@@ -1,5 +1,11 @@
 # Psycopg Toolkit
 
+[![Build Status](https://github.com/descoped/psycopg-toolkit/actions/workflows/build-test.yml/badge.svg)](https://github.com/descoped/psycopg-toolkit/actions/workflows/build-test-native.yml)
+[![Coverage](https://codecov.io/gh/descoped/psycopg-toolkit/branch/master/graph/badge.svg)](https://codecov.io/gh/descoped/psycopg-toolkit)
+[![Python Version](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Release](https://img.shields.io/github/v/release/descoped/psycopg-toolkit)](https://github.com/descoped/psycopg-toolkit/releases)
+
 A robust PostgreSQL database toolkit providing enterprise-grade connection pooling and database management capabilities for Python applications.
 
 ## Features
@@ -7,6 +13,7 @@ A robust PostgreSQL database toolkit providing enterprise-grade connection pooli
 - Async-first design with connection pooling via `psycopg-pool`
 - Comprehensive transaction management with savepoint support
 - Type-safe repository pattern with Pydantic model validation
+- **JSONB support** with automatic field detection and psycopg JSON adapters
 - SQL query builder with SQL injection protection
 - Database schema and test data lifecycle management
 - Automatic retry mechanism with exponential backoff
@@ -111,6 +118,45 @@ async with tm.transaction() as conn:
     user = await repo.get_by_id(user_id)
 ```
 
+### JSONB Support
+
+```python
+from typing import Dict, List, Any
+from pydantic import BaseModel
+from psycopg_toolkit import BaseRepository
+
+class UserProfile(BaseModel):
+    id: int
+    name: str
+    # These fields are automatically detected as JSONB
+    metadata: Dict[str, Any]
+    preferences: Dict[str, str]
+    tags: List[str]
+
+class UserRepository(BaseRepository[UserProfile, int]):
+    def __init__(self, conn):
+        super().__init__(
+            db_connection=conn,
+            table_name="user_profiles",
+            model_class=UserProfile,
+            primary_key="id"
+            # auto_detect_json=True by default
+        )
+
+# Usage - JSON fields handled automatically
+user = UserProfile(
+    id=1,
+    name="John Doe",
+    metadata={"created_at": "2024-01-01", "source": "web"},
+    preferences={"theme": "dark", "language": "en"},
+    tags=["premium", "beta_tester"]
+)
+
+# JSONB fields automatically serialized/deserialized
+created_user = await repo.create(user)
+retrieved_user = await repo.get_by_id(1)
+```
+
 ### Schema Management
 
 ```python
@@ -159,17 +205,41 @@ except RecordNotFoundError:
 - [Database Management](docs/database.md)
 - [Transaction Management](docs/transaction_manager.md)
 - [Base Repository](docs/base_repository.md)
+- [JSONB Support](docs/jsonb_support.md)
 - [PsycopgHelper](docs/psycopg_helper.md)
 
 ## Running Tests
 
 ```bash
-# Install test dependencies
-poetry install --with test
+# Install dependencies
+uv sync --all-groups
 
-# Run tests
-poetry run pytest
+# Run all tests except performance tests (default)
+uv run pytest
+
+# Run only performance tests
+uv run pytest -m performance
+
+# Run all tests including performance
+uv run pytest -m ""
+
+# Run specific test categories
+uv run pytest tests/unit/  # Only unit tests
+uv run pytest -m performance  # Only performance tests
+
+# Run with coverage
+uv run pytest --cov=src/psycopg_toolkit --cov-report=html
 ```
+
+### Test Categories
+
+The test suite is organized into three categories:
+
+- **Unit tests**: Fast, isolated tests that don't require a database (in `tests/unit/`)
+- **Integration tests**: Tests that require a real PostgreSQL database (in `tests/` root)
+- **Performance tests**: Benchmarks and performance measurements (marked with `@pytest.mark.performance`)
+
+Performance tests are excluded by default to keep the regular test runs fast. Use the `-m performance` flag to run them explicitly.
 
 ## Contributing
 

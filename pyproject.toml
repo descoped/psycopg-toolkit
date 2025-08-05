@@ -1,46 +1,98 @@
-[tool.poetry]
+[project]
 name = "psycopg-toolkit"
 version = "0.1.7"
 description = "A Python PostgreSQL database utility with connection pooling"
-authors = ["Ove Ranheim <oranheim@gmail.com>"]
-readme = "docs/readme.md"
-packages = [{ include = "psycopg_toolkit", from = "src" }]
-license = "MIT"
+authors = [
+    { name = "Ove Ranheim", email = "oranheim@gmail.com" }
+]
+requires-python = ">=3.11"
+readme = "README.md"
+license = { text = "MIT" }
+keywords = ["postgresql", "database", "async", "pool", "psycopg", "jsonb", "repository-pattern"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Database",
+    "Topic :: Database :: Database Engines/Servers",
     "Topic :: Software Development :: Libraries :: Python Modules",
-    "Typing :: Typed"
+    "Typing :: Typed",
+    "License :: OSI Approved :: MIT License",
+    "Framework :: AsyncIO",
+    "Framework :: Pydantic :: 2",
 ]
-homepage = "https://github.com/descoped/psycopg-toolkit"
-repository = "https://github.com/descoped/psycopg-toolkit"
-documentation = "https://github.com/descoped/psycopg-toolkit/tree/master/docs"
-keywords = ["postgresql", "database", "async", "pool", "psycopg"]
+dependencies = [
+    "psycopg>=3.2.3",
+    "psycopg-pool>=3.2.4",
+    "tenacity>=9.0.0",
+    "pydantic>=2.10.5",
+]
 
-[tool.poetry.dependencies]
-python = "^3.11"
-psycopg = "^3.2.3"
-psycopg-pool = "^3.2.4"
-tenacity = "^9.0.0"
-pydantic = "^2.10.5"
-
-[tool.poetry.group.test.dependencies]
-pytest = "^8.3.0"
-pytest-asyncio = "^0.25.2"
-testcontainers = {extras = ["postgresql"], version = "^4.9.1"}
-
-[tool.poetry.group.dev.dependencies]
-flake8 = "^7.1.0"
-restructuredtext-lint = "^1.4.0"
-pygments = "^2.19.1"
+[dependency-groups]
+test = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.25.2",
+    "pytest-cov>=6.0.0",
+    "testcontainers[postgresql]>=4.9.1",
+    "psutil>=6.1.0", # For performance benchmarks
+]
+dev = [
+    "ruff>=0.8.0",
+    "restructuredtext-lint>=1.4.0",
+    "pygments>=2.19.1",
+]
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling>=1.26.3"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/psycopg_toolkit"]
+
+[tool.hatch.build]
+exclude = [
+    "docs/*",
+    "examples/*",
+    "tests/*",
+    ".github/*",
+    "scripts/*",
+    "ai_docs/*",
+    "*.gif",
+    "*.png",
+    "dist/*",
+    "build/*",
+    ".pytest_cache",
+    "__pycache__",
+    "*.pyc",
+    ".coverage",
+    "htmlcov/*",
+    ".ruff_cache/*",
+    ".venv/*",
+    ".env",
+    "*.egg-info/",
+    ".claude/*",
+    "uv.lock",
+]
+
+[project.urls]
+Homepage = "https://github.com/descoped/psycopg-toolkit"
+Repository = "https://github.com/descoped/psycopg-toolkit"
+Documentation = "https://github.com/descoped/psycopg-toolkit/tree/master/docs"
+Issues = "https://github.com/descoped/psycopg-toolkit/issues"
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple/"
+publish-url = "https://upload.pypi.org/legacy/"
+
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+publish-url = "https://test.pypi.org/legacy/"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -49,7 +101,96 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
     "asyncio: mark test as async",
+    "performance: mark test as performance benchmark",
+]
+addopts = [
+    "--verbose",
+    "--strict-markers",
+    "--tb=short",
+    "-m", "not performance",  # Exclude performance tests by default
 ]
 
-[tool.poetry.scripts]
-make-readme = "scripts.make_readme:main"
+[tool.coverage.run]
+source = ["src/psycopg_toolkit"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/examples/*",
+    "*/__init__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+    "@abc.abstractmethod",
+]
+precision = 2
+show_missing = true
+skip_covered = false
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "C4",  # flake8-comprehensions
+    "B",   # flake8-bugbear
+    "A",   # flake8-builtins
+    "T20", # flake8-print
+    "SIM", # flake8-simplify
+    "RUF", # Ruff-specific rules
+    "C90", # mccabe complexity
+    "PTH", # flake8-use-pathlib
+    "TCH", # flake8-type-checking
+]
+ignore =[
+    "E501",   # Line too long (handled by formatter)
+    "N818",   # Exception name should be named with an Error suffix (backwards compatibility)
+]
+# Your existing ignores + a few additions
+extend-ignore = [
+    "S101", # Assert statements (tests need them)
+    "S608", # SQL injection (psycopg handles this)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = [
+    "B017",   # Assert raises on Exception - sometimes needed for testing
+    "C901", # Allow complex functions
+    "S101", # Allow assert statements
+    "S106", # Allow hardcoded passwords in test fixtures
+    "S105", # Allow hardcoded secrets in tests
+    "T201",   # Print found (allow print statements)
+]
+"examples/*" = [
+    "T201", # Allow print statements in examples
+    "T203", # Allow pprint in examples
+    "S106", # Allow hardcoded passwords in examples
+]
+
+[tool.ruff.lint.pyupgrade]
+keep-runtime-typing = true  # For Pydantic
+
+[tool.ruff.lint.pep8-naming]
+ignore-names = ["model_*"]  # For Pydantic models
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-format = true
+docstring-code-line-length = "dynamic"

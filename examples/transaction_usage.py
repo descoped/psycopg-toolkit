@@ -1,4 +1,4 @@
-"""Transaction usage example of PsycoDB."""
+"""Transaction usage example of psycopg-toolkit."""
 
 import asyncio
 
@@ -24,21 +24,20 @@ async def single_transaction():
 
         try:
             tm = await db.get_transaction_manager()
-            async with tm.transaction() as conn:
-                async with conn.cursor() as cur:
-                    # Create table transaction
-                    await cur.execute("""
+            async with tm.transaction() as conn, conn.cursor() as cur:
+                # Create table transaction
+                await cur.execute("""
                         CREATE TABLE users (
                             id SERIAL PRIMARY KEY,
                             name VARCHAR(100),
                             status VARCHAR(50) DEFAULT 'inactive'
                         )
                     """)
-                    await cur.execute("INSERT INTO users (name) VALUES (%s)", ["John"])
-                    await cur.execute("UPDATE users SET status = 'active' WHERE name = %s", ["John"])
-                    await cur.execute("SELECT * FROM users")
-                    rows = await cur.fetchall()
-                    print("Users:", rows)
+                await cur.execute("INSERT INTO users (name) VALUES (%s)", ["John"])
+                await cur.execute("UPDATE users SET status = 'active' WHERE name = %s", ["John"])
+                await cur.execute("SELECT * FROM users")
+                rows = await cur.fetchall()
+                print("Users:", rows)
             # If any operation fails, the entire transaction is rolled back
         except Exception as e:
             print(f"Transaction failed: {e}")
@@ -63,10 +62,9 @@ async def multiple_transactions():
 
         try:
             tm = await db.get_transaction_manager()
-            async with tm.transaction() as conn:
-                async with conn.cursor() as cur:
-                    # Create table transaction
-                    await cur.execute("""
+            async with tm.transaction() as conn, conn.cursor() as cur:
+                # Create table transaction
+                await cur.execute("""
                         CREATE TABLE users (
                             id SERIAL PRIMARY KEY,
                             name VARCHAR(100),
@@ -74,22 +72,19 @@ async def multiple_transactions():
                         )
                     """)
 
-            async with tm.transaction() as conn:
-                async with conn.cursor() as cur:
-                    # Insert user transaction
-                    await cur.execute("INSERT INTO users (name) VALUES (%s)", ["John"])
+            async with tm.transaction() as conn, conn.cursor() as cur:
+                # Insert user transaction
+                await cur.execute("INSERT INTO users (name) VALUES (%s)", ["John"])
 
-            async with tm.transaction() as conn:
-                async with conn.cursor() as cur:
-                    # Update user status transaction
-                    await cur.execute("UPDATE users SET status = 'active' WHERE name = %s", ["John"])
+            async with tm.transaction() as conn, conn.cursor() as cur:
+                # Update user status transaction
+                await cur.execute("UPDATE users SET status = 'active' WHERE name = %s", ["John"])
 
-            async with tm.transaction() as conn:
-                async with conn.cursor() as cur:
-                    # Fetch and print all rows transaction
-                    await cur.execute("SELECT * FROM users")
-                    rows = await cur.fetchall()
-                    print("Users:", rows)
+            async with tm.transaction() as conn, conn.cursor() as cur:
+                # Fetch and print all rows transaction
+                await cur.execute("SELECT * FROM users")
+                rows = await cur.fetchall()
+                print("Users:", rows)
             # If any operation fails, the entire transaction is rolled back
         except Exception as e:
             print(f"Transaction failed: {e}")

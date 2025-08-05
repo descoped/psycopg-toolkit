@@ -50,7 +50,8 @@ settings = DatabaseSettings(
     max_pool_size=20,       # Maximum connections (default: 20)  
     pool_timeout=30,        # Connection timeout in seconds (default: 30)
     connection_timeout=5.0,  # Initial connection timeout (default: 5.0)
-    statement_timeout=None   # SQL statement timeout (default: None)
+    statement_timeout=None,  # SQL statement timeout (default: None)
+    enable_json_adapters=True  # Enable psycopg JSON adapters for JSONB (default: True)
 )
 ```
 

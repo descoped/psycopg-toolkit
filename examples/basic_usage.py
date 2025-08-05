@@ -1,4 +1,5 @@
-"""Basic usage example of PsycoDB."""
+"""Basic usage example of psycopg-toolkit."""
+
 import asyncio
 
 from testcontainers.postgres import PostgresContainer
@@ -25,12 +26,11 @@ async def main():
             await db.init_db()
 
             # Use a connection from the pool
-            async with db.connection() as conn:
+            async with db.connection() as conn, conn.cursor() as cur:
                 # Execute a simple query
-                async with conn.cursor() as cur:
-                    await cur.execute("SELECT version();")
-                    version = await cur.fetchone()
-                    print(f"PostgreSQL version:\n{version[0]}")
+                await cur.execute("SELECT version();")
+                version = await cur.fetchone()
+                print(f"PostgreSQL version:\n{version[0]}")
 
         finally:
             # Clean up resources

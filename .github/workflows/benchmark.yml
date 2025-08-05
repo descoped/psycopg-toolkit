@@ -1,0 +1,82 @@
+name: Performance Benchmarks
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - 'src/psycopg_toolkit/repositories/**'
+      - 'src/psycopg_toolkit/utils/json_handler.py'
+      - 'src/psycopg_toolkit/utils/type_inspector.py'
+      - 'tests/performance/**'
+
+env:
+  PYTHON_VERSION: '3.13'
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: psycopg_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v6
+
+    - name: Install dependencies
+      run: |
+        uv sync --all-groups
+    
+    - name: Setup JSONB test schema
+      env:
+        POSTGRES_HOST: localhost
+        POSTGRES_PORT: 5432
+        POSTGRES_DB: psycopg_test
+        POSTGRES_USER: postgres
+        POSTGRES_PASSWORD: postgres
+      run: |
+        uv run python tests/schema/manage_test_schema.py setup
+    
+    - name: Run performance benchmarks
+      env:
+        POSTGRES_HOST: localhost
+        POSTGRES_PORT: 5432
+        POSTGRES_DB: psycopg_test
+        POSTGRES_USER: postgres
+        POSTGRES_PASSWORD: postgres
+      run: |
+        # Run only performance-marked tests
+        uv run pytest -m performance -v --tb=short
+    
+    - name: Upload benchmark results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: benchmark-results
+        path: |
+          tests/performance/results/
+          *.json
+        retention-days: 30
+        if-no-files-found: ignore

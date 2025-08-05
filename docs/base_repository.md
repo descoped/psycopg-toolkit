@@ -318,3 +318,251 @@ sequenceDiagram
         R-->>A: RecordNotFoundError
     end
 ```
+
+## JSONB Support
+
+The BaseRepository provides comprehensive support for PostgreSQL's JSONB data type with automatic field detection and seamless serialization/deserialization.
+
+### Automatic JSON Field Detection
+
+JSON fields are automatically detected from Pydantic type hints:
+
+```python
+from typing import Dict, List, Optional, Any
+from pydantic import BaseModel
+from psycopg_toolkit import BaseRepository
+
+class UserProfile(BaseModel):
+    id: int
+    username: str
+    email: str
+    
+    # These fields are automatically detected as JSONB
+    metadata: Dict[str, Any]              # Dictionary -> JSONB
+    preferences: Dict[str, str]           # String dictionary -> JSONB  
+    tags: List[str]                       # List -> JSONB
+    profile_data: Optional[Dict[str, Any]] = None  # Optional dict -> JSONB
+
+class UserRepository(BaseRepository[UserProfile, int]):
+    def __init__(self, db_connection):
+        super().__init__(
+            db_connection=db_connection,
+            table_name="user_profiles",
+            model_class=UserProfile,
+            primary_key="id"
+            # auto_detect_json=True by default
+        )
+```
+
+### JSONB Operations Example
+
+```python
+async def jsonb_example():
+    async with db.connection() as conn:
+        repo = UserRepository(conn)
+        
+        # Create user with complex JSON data
+        user = UserProfile(
+            id=1,
+            username="john_doe",
+            email="john@example.com",
+            metadata={
+                "created_at": "2024-01-01T10:00:00",
+                "source": "web_registration",
+                "browser": {
+                    "name": "Chrome",
+                    "version": "120.0",
+                    "os": "macOS"
+                },
+                "location": {
+                    "country": "US",
+                    "timezone": "EST"
+                }
+            },
+            preferences={
+                "theme": "dark",
+                "language": "en",
+                "notifications": "email"
+            },
+            tags=["premium", "early_adopter", "newsletter"],
+            profile_data={
+                "bio": "Software engineer passionate about databases",
+                "skills": ["Python", "PostgreSQL", "Docker"],
+                "experience_years": 5
+            }
+        )
+        
+        # JSON fields automatically serialized to JSONB
+        created_user = await repo.create(user)
+        print(f"Created user: {created_user.username}")
+        
+        # JSON fields automatically deserialized from JSONB
+        retrieved_user = await repo.get_by_id(1)
+        print(f"Browser: {retrieved_user.metadata['browser']['name']}")
+        print(f"Theme: {retrieved_user.preferences['theme']}")
+        print(f"Skills: {retrieved_user.profile_data['skills']}")
+        
+        # Update JSON fields
+        updated_user = await repo.update(1, {
+            "preferences": {
+                **retrieved_user.preferences,
+                "theme": "light",
+                "new_feature_beta": "true"
+            },
+            "tags": retrieved_user.tags + ["updated"]
+        })
+        
+        print(f"Updated theme: {updated_user.preferences['theme']}")
+        print(f"Updated tags: {updated_user.tags}")
+```
+
+### Manual JSON Field Configuration
+
+For precise control over which fields are treated as JSON:
+
+```python
+class ProductRepository(BaseRepository[Product, int]):
+    def __init__(self, db_connection):
+        super().__init__(
+            db_connection=db_connection,
+            table_name="products", 
+            model_class=Product,
+            primary_key="id",
+            # Explicitly specify JSON fields
+            json_fields={"specifications", "categories"},
+            # Disable automatic detection
+            auto_detect_json=False
+        )
+```
+
+### psycopg JSON Adapters (Recommended)
+
+For optimal performance, use psycopg's native JSON adapters:
+
+```python
+# Database configuration with JSON adapters enabled
+settings = DatabaseSettings(
+    host="localhost",
+    port=5432,
+    dbname="mydb",
+    user="user", 
+    password="password",
+    enable_json_adapters=True  # Enable psycopg JSON adapters
+)
+
+# Repository configuration - disable custom JSON processing
+class UserRepository(BaseRepository[UserProfile, int]):
+    def __init__(self, db_connection):
+        super().__init__(
+            db_connection=db_connection,
+            table_name="user_profiles",
+            model_class=UserProfile,
+            primary_key="id",
+            # Let psycopg handle JSON automatically
+            auto_detect_json=False
+        )
+```
+
+### JSONB Error Handling
+
+Handle JSON-specific errors with dedicated exceptions:
+
+```python
+from psycopg_toolkit import (
+    JSONProcessingError,
+    JSONSerializationError,
+    JSONDeserializationError
+)
+
+# Enable strict JSON processing for detailed error reporting
+class StrictRepository(BaseRepository[UserProfile, int]):
+    def __init__(self, db_connection):
+        super().__init__(
+            db_connection=db_connection,
+            table_name="user_profiles",
+            model_class=UserProfile,
+            primary_key="id",
+            strict_json_processing=True  # Raise exceptions on JSON errors
+        )
+
+# Usage with error handling
+try:
+    user = await repo.create(user_data)
+except JSONSerializationError as e:
+    print(f"JSON serialization failed: {e}")
+    print(f"Field: {e.field_name}")
+    print(f"Original error: {e.original_error}")
+except JSONDeserializationError as e:
+    print(f"JSON deserialization failed: {e}")
+    print(f"Field: {e.field_name}")
+    print(f"Invalid data: {e.json_data}")
+```
+
+### Database Schema for JSONB
+
+Create tables with JSONB columns and appropriate indexes:
+
+```sql
+-- Create table with JSONB columns
+CREATE TABLE user_profiles (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(100) NOT NULL UNIQUE,
+    email VARCHAR(255) NOT NULL,
+    
+    -- JSONB columns
+    metadata JSONB NOT NULL DEFAULT '{}',
+    preferences JSONB NOT NULL DEFAULT '{}', 
+    tags JSONB NOT NULL DEFAULT '[]',
+    profile_data JSONB
+);
+
+-- Create GIN indexes for efficient JSONB queries
+CREATE INDEX idx_user_metadata ON user_profiles USING GIN (metadata);
+CREATE INDEX idx_user_preferences ON user_profiles USING GIN (preferences); 
+CREATE INDEX idx_user_tags ON user_profiles USING GIN (tags);
+
+-- Create functional indexes for specific queries
+CREATE INDEX idx_user_theme ON user_profiles 
+USING BTREE ((preferences->>'theme'));
+```
+
+### JSONB Querying
+
+Query JSONB data using PostgreSQL's rich JSONB operators:
+
+```python
+async def jsonb_queries():
+    async with db.connection() as conn:
+        async with conn.cursor() as cur:
+            
+            # Find users by browser type
+            await cur.execute("""
+                SELECT username, metadata->'browser'->>'name' as browser
+                FROM user_profiles
+                WHERE metadata->'browser'->>'name' = %s
+            """, ["Chrome"])
+            
+            # Find users with specific preference
+            await cur.execute("""
+                SELECT username, preferences->>'theme' as theme
+                FROM user_profiles  
+                WHERE preferences->>'theme' = %s
+            """, ["dark"])
+            
+            # Find users with specific tags
+            await cur.execute("""
+                SELECT username, tags
+                FROM user_profiles
+                WHERE tags ? %s
+            """, ["premium"])
+            
+            # Complex JSON queries
+            await cur.execute("""
+                SELECT username, metadata
+                FROM user_profiles
+                WHERE metadata @> %s
+                  AND jsonb_array_length(tags) > %s
+            """, ['{"source": "web_registration"}', 2])
+```
+
+For comprehensive JSONB documentation, see [JSONB Support](jsonb_support.md).
