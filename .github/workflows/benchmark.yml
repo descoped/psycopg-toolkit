@@ -49,15 +49,7 @@ jobs:
       run: |
         uv sync --all-groups
     
-    - name: Setup JSONB test schema
-      env:
-        POSTGRES_HOST: localhost
-        POSTGRES_PORT: 5432
-        POSTGRES_DB: psycopg_test
-        POSTGRES_USER: postgres
-        POSTGRES_PASSWORD: postgres
-      run: |
-        uv run python tests/schema/manage_test_schema.py setup
+    # Schema setup handled by test fixtures
     
     - name: Run performance benchmarks
       env:
@@ -70,13 +62,4 @@ jobs:
         # Run only performance-marked tests
         uv run pytest -m performance -v --tb=short
     
-    - name: Upload benchmark results
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: benchmark-results
-        path: |
-          tests/performance/results/
-          *.json
-        retention-days: 30
-        if-no-files-found: ignore
+    # Benchmark results are displayed in console output
