@@ -2,6 +2,24 @@
 
 The `psycopg-toolkit` provides comprehensive support for PostgreSQL's JSONB data type, enabling seamless integration of JSON data with your Pydantic models. This document covers all aspects of JSONB support including automatic field detection, data processing, error handling, and performance optimization.
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Quick Start](#quick-start)
+- [JSON Field Detection](#json-field-detection)
+- [Configuration Approaches](#configuration-approaches)
+  - [Approach 1: psycopg JSON Adapters (Recommended)](#approach-1-psycopg-json-adapters-recommended)
+  - [Approach 2: Custom JSON Processing](#approach-2-custom-json-processing)
+  - [Approach 3: Disable All JSONB Features](#approach-3-disable-all-jsonb-features)
+- [Error Handling](#error-handling)
+- [Database Schema Design](#database-schema-design)
+- [JSONB Querying](#jsonb-querying)
+- [Performance Optimization](#performance-optimization)
+- [Migration Strategies](#migration-strategies)
+- [Testing JSONB Functionality](#testing-jsonb-functionality)
+- [Common Patterns](#common-patterns)
+- [Troubleshooting](#troubleshooting)
+
 ## Overview
 
 JSONB (Binary JSON) is PostgreSQL's binary JSON data type that offers:
@@ -111,7 +129,7 @@ class ProductRepository(BaseRepository[Product, int]):
         )
 ```
 
-## JSON Processing Approaches
+## Configuration Approaches
 
 ### Approach 1: psycopg JSON Adapters (Recommended)
 
@@ -181,6 +199,77 @@ class UserRepository(BaseRepository[UserProfile, int]):
 - ✅ Custom serialization logic
 - ✅ Detailed error reporting
 - ⚠️ Slightly lower performance
+
+### Approach 3: Disable All JSONB Features
+
+For projects that need to handle JSON/JSONB processing entirely on their own:
+
+#### Method 1: Disable at Repository Level
+
+```python
+class MyRepository(BaseRepository[MyModel, int]):
+    def __init__(self, db_connection):
+        super().__init__(
+            db_connection=db_connection,
+            table_name="my_table",
+            model_class=MyModel,
+            primary_key="id",
+            json_fields=set(),      # Empty set = no JSON fields
+            auto_detect_json=False  # Disable auto-detection
+        )
+```
+
+#### Method 2: Disable at Database Level
+
+```python
+settings = DatabaseSettings(
+    host="localhost",
+    port=5432,
+    dbname="mydb",
+    user="user",
+    password="password",
+    enable_json_adapters=False  # Disable psycopg JSON adapters
+)
+```
+
+#### Method 3: Complete Disable (Recommended for Full Control)
+
+```python
+# 1. Disable psycopg adapters at database level
+settings = DatabaseSettings(
+    host="localhost",
+    port=5432,
+    dbname="mydb",
+    user="user",
+    password="password",
+    enable_json_adapters=False  # No psycopg JSON adapters
+)
+
+# 2. Disable all JSON processing at repository level
+class MyRepository(BaseRepository[MyModel, int]):
+    def __init__(self, db_connection):
+        super().__init__(
+            db_connection=db_connection,
+            table_name="my_table",
+            model_class=MyModel,
+            primary_key="id",
+            json_fields=set(),      # No JSON fields
+            auto_detect_json=False  # No auto-detection
+        )
+```
+
+**With this configuration:**
+- ❌ No automatic JSON field detection occurs
+- ❌ No JSON serialization/deserialization is performed
+- ❌ No psycopg JSON adapters are applied
+- ✅ Your custom JSON handling code will work without interference
+- ✅ Full control over how JSON/JSONB fields are processed
+
+**Use Cases:**
+- Migrating from existing custom JSON handling
+- Special serialization requirements
+- Working with PostgreSQL arrays instead of JSONB
+- Legacy system compatibility
 
 ## Error Handling
 
@@ -768,6 +857,10 @@ The psycopg-toolkit's JSONB support provides a powerful and flexible foundation 
 - **High Performance**: Native psycopg adapter support for optimal speed  
 - **Robust Error Handling**: Comprehensive exception hierarchy for JSON operations
 - **Flexible Configuration**: Multiple approaches to fit different use cases
+- **Full Control Option**: Ability to completely disable JSONB features when needed
 - **Production Ready**: Battle-tested patterns and performance optimizations
 
-Choose the psycopg JSON adapter approach for production applications requiring maximum performance, or use custom JSON processing when you need fine-grained control over serialization and error handling.
+Choose the approach that best fits your needs:
+- **psycopg JSON adapters** for production applications requiring maximum performance
+- **Custom JSON processing** when you need fine-grained control over serialization and error handling
+- **Disabled JSONB features** when you have existing JSON handling code or special requirements

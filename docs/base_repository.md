@@ -495,7 +495,7 @@ except JSONSerializationError as e:
 except JSONDeserializationError as e:
     print(f"JSON deserialization failed: {e}")
     print(f"Field: {e.field_name}")
-    print(f"Invalid data: {e.invalid_data}")
+    print(f"Invalid data: {e.json_data}")
 ```
 
 ### Database Schema for JSONB

@@ -2,42 +2,41 @@
 
 ## Overview
 
-This directory contains the comprehensive test suite for psycopg-toolkit, organized by test type and functionality. The test structure has been optimized to reduce redundancy while maintaining complete coverage.
+This directory contains the comprehensive test suite for psycopg-toolkit, organized by test type and functionality.
 
 ## Test Structure
 
 ```
 tests/
 ├── unit/                      # Unit tests with mocked dependencies
-│   ├── jsonb/                 # JSONB-specific unit tests
-│   │   ├── test_serialization.py    # JSON serialization/deserialization
-│   │   ├── test_field_detection.py  # Type inspection and field detection
-│   │   └── test_exceptions.py       # Exception handling
-│   └── repository/            # Repository pattern unit tests
-│       └── test_base_repository_jsonb.py  # BaseRepository with JSONB
-│
-├── integration/               # Integration tests with real database
-│   ├── jsonb/                # JSONB integration tests
-│   │   ├── test_crud_operations.py   # CRUD operations with JSONB
-│   │   ├── test_native_features.py   # PostgreSQL JSONB operators
-│   │   ├── test_transactions.py      # Transactional behavior
-│   │   └── test_adapter_modes.py     # Custom vs native adapters
-│   └── test_database.py      # Core database functionality
+│   ├── test_base_repository.py
+│   ├── test_base_repository_data_processing.py
+│   ├── test_custom_json_encoder.py
+│   ├── test_database.py
+│   ├── test_field_detection.py
+│   ├── test_json_exceptions.py
+│   ├── test_json_handler.py
+│   ├── test_transaction.py
+│   └── test_type_inspector.py
 │
 ├── performance/              # Performance benchmarks
-│   └── test_jsonb_benchmarks.py     # JSONB performance tests
+│   └── test_jsonb_performance.py
 │
-├── edge_cases/               # Edge case and error scenario tests
-│   └── test_jsonb_edge_cases.py    # Malformed data, limits, etc.
+├── repositories/             # Test repository implementations
+│   └── jsonb_repositories.py
 │
-├── models/                   # Shared test models
-│   └── jsonb_models.py      # Pydantic models for testing
+├── sql/                      # SQL scripts for test setup
+│   └── init_test_schema.sql
 │
-├── schema/                   # Test database schemas
-│   ├── jsonb_test_schema.sql
-│   └── manage_test_schema.py
+├── test_database_container.py     # Database container tests
+├── test_jsonb_basic.py           # Basic JSONB functionality tests
+├── test_jsonb_edge_cases.py      # JSONB edge case tests
+├── test_jsonb_queries.py         # JSONB query tests
+├── test_jsonb_transactions.py    # JSONB transaction tests
 │
-└── jsonb_test_utils.py      # Shared utilities for JSONB testing
+├── conftest.py              # Pytest configuration and fixtures
+├── schema_and_data.py       # Test schema and data management
+└── test_data.py            # Test data generation utilities
 ```
 
 ## Test Categories
@@ -46,40 +45,29 @@ tests/
 
 Unit tests run without a database connection, using mocks to isolate component behavior.
 
-- **JSONB Tests** (`unit/jsonb/`):
-  - `test_serialization.py`: Tests JSON encoding/decoding, type handling, round-trip conversion
-  - `test_field_detection.py`: Tests automatic detection of JSON fields from Pydantic models
-  - `test_exceptions.py`: Tests exception classes and error handling behavior
+- `test_base_repository.py`: Base repository CRUD operations with mocks
+- `test_base_repository_data_processing.py`: JSON field preprocessing/postprocessing
+- `test_custom_json_encoder.py`: Custom JSON encoder for special types
+- `test_database.py`: Database class functionality with mocks
+- `test_field_detection.py`: Automatic JSON field detection from models
+- `test_json_exceptions.py`: JSON-related exception classes
+- `test_json_handler.py`: JSON serialization/deserialization utilities
+- `test_transaction.py`: Transaction manager with mocks
+- `test_type_inspector.py`: Type inspection for Pydantic models
 
-- **Repository Tests** (`unit/repository/`):
-  - `test_base_repository_jsonb.py`: Tests repository logic with mocked database
-
-### Integration Tests (`integration/`)
+### Integration Tests (root level)
 
 Integration tests use a real PostgreSQL database (via testcontainers) to verify actual behavior.
 
-- **JSONB Integration** (`integration/jsonb/`):
-  - `test_crud_operations.py`: Full CRUD operations with JSONB fields
-  - `test_native_features.py`: PostgreSQL-specific JSONB operators (`->`, `->>`, `@>`, etc.)
-  - `test_transactions.py`: Transaction boundaries, rollback, savepoints with JSONB
-  - `test_adapter_modes.py`: Comparison of custom vs psycopg native JSON handling
+- `test_database_container.py`: Database container setup and basic operations
+- `test_jsonb_basic.py`: Basic JSONB CRUD operations
+- `test_jsonb_edge_cases.py`: Edge cases, malformed data, limits
+- `test_jsonb_queries.py`: PostgreSQL JSONB operators and queries
+- `test_jsonb_transactions.py`: Transactional behavior with JSONB
 
 ### Performance Tests (`performance/`)
 
-- `test_jsonb_benchmarks.py`: Comprehensive performance benchmarks comparing:
-  - JSONB vs non-JSONB operations
-  - Serialization/deserialization overhead
-  - Bulk operation efficiency
-  - Query performance with GIN indexes
-
-### Edge Cases (`edge_cases/`)
-
-- `test_jsonb_edge_cases.py`: Tests for:
-  - Malformed JSON data
-  - Circular references
-  - Unicode and special characters
-  - Large data structures
-  - Numeric precision limits
+- `test_jsonb_performance.py`: Comprehensive performance benchmarks for JSONB operations
 
 ## Running Tests
 
@@ -93,74 +81,53 @@ uv run pytest
 # Unit tests only
 uv run pytest tests/unit/
 
-# JSONB tests only
-uv run pytest tests/unit/jsonb/ tests/integration/jsonb/
-
-# Integration tests only
-uv run pytest tests/integration/
+# Integration tests only (excludes unit and performance)
+uv run pytest tests/ -k "not unit and not performance"
 
 # Performance benchmarks
 uv run pytest tests/performance/ -v
 
-# Edge cases
-uv run pytest tests/edge_cases/
+# JSONB-specific tests
+uv run pytest tests/ -k "jsonb"
 ```
 
 ### Run with Coverage
 ```bash
-uv run pytest --cov=psycopg_toolkit --cov-report=html
+uv run pytest --cov=src/psycopg_toolkit --cov-report=html
 ```
 
 ### Run Specific Test Files
 ```bash
-# JSON serialization tests
-uv run pytest tests/unit/jsonb/test_serialization.py -v
+# JSON handler tests
+uv run pytest tests/unit/test_json_handler.py -v
 
-# CRUD integration tests
-uv run pytest tests/integration/jsonb/test_crud_operations.py -v
+# JSONB basic operations
+uv run pytest tests/test_jsonb_basic.py -v
 ```
 
-## Test Utilities
+## Test Markers
 
-The `jsonb_test_utils.py` module provides shared utilities:
+Tests are marked with pytest markers for easy filtering:
 
-- **Data Generators**:
-  - `generate_simple_json_data()`: Basic JSON test data
-  - `generate_complex_json_data()`: Complex nested structures with special types
-  - `generate_edge_case_json_data()`: Edge cases and boundary conditions
-  - `generate_bulk_test_data()`: Bulk data for performance testing
-
-- **Assertion Helpers**:
-  - `assert_json_equal()`: Compare JSON objects ignoring specific keys
-  - `assert_json_structure()`: Validate JSON structure against expected schema
-  - `assert_serialization_roundtrip()`: Verify data survives serialization
-
-- **Mock Factories**:
-  - `create_mock_json_repository()`: Create mock repository for testing
-  - `create_mock_db_connection()`: Create mock database connection
+- `@pytest.mark.integration`: Tests requiring a real database
+- `@pytest.mark.performance`: Performance benchmarks
+- `@pytest.mark.unit`: Unit tests with mocks (implied for tests in unit/)
 
 ## Adding New Tests
 
 ### 1. Determine Test Type
 
 - **Unit test**: Component behavior in isolation → `unit/`
-- **Integration test**: Database interaction → `integration/`
+- **Integration test**: Database interaction → root level
 - **Performance test**: Benchmarking → `performance/`
-- **Edge case**: Error conditions, limits → `edge_cases/`
 
 ### 2. Choose or Create Appropriate File
 
-- For JSONB functionality, add to existing JSONB test files
-- For new components, create new test files following naming convention
+- For unit tests, add to appropriate file in `unit/`
+- For integration tests, create/use files at root level
 - Use `test_` prefix for all test files
 
-### 3. Use Shared Resources
-
-- Import test models from `models/jsonb_models.py`
-- Use utilities from `jsonb_test_utils.py`
-- Follow existing test patterns for consistency
-
-### 4. Write Descriptive Tests
+### 3. Follow Testing Patterns
 
 ```python
 class TestYourFeature:
