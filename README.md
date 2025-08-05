@@ -173,8 +173,10 @@ class User(BaseModel):
     roles: List[str]          # PostgreSQL TEXT[] array
     permissions: List[str]    # PostgreSQL TEXT[] array
     metadata: Dict[str, Any]  # JSONB field
-    birthdate: str            # ISO date string
-    created_at: str           # ISO datetime string
+    birthdate: str            # ISO date string (from DATE)
+    created_at: str           # ISO datetime string (from TIMESTAMP)
+    updated_at: str           # ISO datetime string (from TIMESTAMPTZ)
+    last_login: str | None    # Optional timestamp field
 
 class UserRepository(BaseRepository[User, UUID]):
     def __init__(self, conn):
@@ -185,8 +187,8 @@ class UserRepository(BaseRepository[User, UUID]):
             primary_key="id",
             # Preserve PostgreSQL arrays instead of JSONB
             array_fields={"roles", "permissions"},
-            # Auto-convert dates to/from strings
-            date_fields={"birthdate", "created_at"}
+            # Auto-convert ALL date/timestamp fields to/from strings
+            date_fields={"birthdate", "created_at", "updated_at", "last_login"}
         )
 
 # PostgreSQL arrays are preserved, dates are auto-converted
@@ -196,8 +198,10 @@ user = User(
     roles=["admin", "user"],      # Stored as TEXT[]
     permissions=["read", "write"], # Stored as TEXT[]
     metadata={"dept": "IT"},       # Stored as JSONB
-    birthdate="1990-01-01",        # Converts to/from PostgreSQL DATE
-    created_at="2024-01-01T12:00:00" # Converts to/from TIMESTAMP
+    birthdate="1990-01-01",           # Converts to/from PostgreSQL DATE
+    created_at="2024-01-01T12:00:00", # Converts to/from TIMESTAMP
+    updated_at="2024-01-01T12:00:00", # Converts to/from TIMESTAMPTZ
+    last_login=None                   # Nullable timestamp field
 )
 ```
 

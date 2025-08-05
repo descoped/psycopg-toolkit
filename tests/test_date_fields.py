@@ -1,6 +1,6 @@
 """Test cases for date_fields parameter functionality."""
 
-from datetime import date
+from datetime import date, datetime
 from uuid import UUID, uuid4
 
 import pytest
@@ -17,6 +17,7 @@ class ModelWithStringDates(BaseModel):
     name: str
     created_date: str  # Expects ISO date string
     updated_date: str | None = None  # Optional date string
+    created_timestamp: str | None = None  # Expects ISO datetime string
     metadata: dict[str, str] | None = None
 
 
@@ -27,6 +28,7 @@ class ModelWithDateObjects(BaseModel):
     name: str
     created_date: date
     updated_date: date | None = None
+    created_timestamp: datetime | None = None
     metadata: dict[str, str] | None = None
 
 
@@ -39,7 +41,7 @@ class StringDateRepository(BaseRepository[ModelWithStringDates, UUID]):
             table_name="date_test",
             model_class=ModelWithStringDates,
             primary_key="id",
-            date_fields={"created_date", "updated_date"}  # Convert dates to strings
+            date_fields={"created_date", "updated_date", "created_timestamp"}  # Convert dates/datetimes to strings
         )
 
 
@@ -52,7 +54,7 @@ class DateObjectRepository(BaseRepository[ModelWithDateObjects, UUID]):
             table_name="date_test",
             model_class=ModelWithDateObjects,
             primary_key="id",
-            date_fields={"created_date", "updated_date"}  # Handle date conversion
+            date_fields={"created_date", "updated_date", "created_timestamp"}  # Handle date/datetime conversion
         )
 
 
@@ -68,6 +70,7 @@ async def date_test_table(db_connection):
                 name VARCHAR(255) NOT NULL,
                 created_date DATE NOT NULL,
                 updated_date DATE,
+                created_timestamp TIMESTAMP,
                 metadata JSONB
             )
         """)
@@ -201,3 +204,22 @@ class TestDateFields:
             await repo.get_by_id(test_id)
 
         assert "validation" in str(exc_info.value).lower() or "string" in str(exc_info.value).lower()
+
+    @pytest.mark.asyncio
+    async def test_datetime_field_conversion(self, date_test_table):
+        """Test that PostgreSQL timestamps are converted to strings for string-typed models."""
+        conn = date_test_table
+        repo = StringDateRepository(conn)
+        
+        # Insert data directly with PostgreSQL datetime
+        test_id = uuid4()
+        await conn.execute("""
+            INSERT INTO date_test (id, name, created_date, created_timestamp)
+            VALUES (%s, %s, %s, %s)
+        """, [test_id, "datetime_test", date(2024, 1, 15), datetime(2024, 1, 15, 14, 30, 45)])
+        await conn.commit()
+        
+        # Retrieve - datetime should be converted to ISO string
+        retrieved = await repo.get_by_id(test_id)
+        assert retrieved.created_timestamp == "2024-01-15T14:30:45"
+        assert isinstance(retrieved.created_timestamp, str)

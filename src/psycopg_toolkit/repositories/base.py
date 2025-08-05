@@ -90,8 +90,8 @@ class BaseRepository(Generic[T, K]):
             strict_json_processing (bool, optional): Whether to raise exceptions for JSON
                 deserialization errors instead of logging warnings. Defaults to False.
             date_fields (Optional[Set[str]], optional): Set of field names that contain
-                date values that need conversion between datetime.date and ISO strings.
-                Defaults to None.
+                date/datetime values needing conversion to ISO strings. Include ALL date,
+                timestamp, and timestamptz fields from your model. Defaults to None.
             array_fields (Optional[Set[str]], optional): Set of field names that should be
                 treated as PostgreSQL arrays rather than JSONB. Only relevant when
                 auto_detect_json=False. Defaults to None.
@@ -184,10 +184,10 @@ class BaseRepository(Generic[T, K]):
         for field_name in self._date_fields:
             if field_name in data and data[field_name] is not None:
                 value = data[field_name]
-                if isinstance(value, date) and not isinstance(value, datetime):
-                    # Convert date to ISO string for storage
+                if isinstance(value, (date, datetime)):
+                    # Convert date/datetime to ISO string for storage
                     processed_data[field_name] = value.isoformat()
-                    logger.debug(f"Converted date field '{field_name}' to ISO string for {self.table_name}")
+                    logger.debug(f"Converted date field '{field_name}' from {type(value).__name__} to ISO string for {self.table_name}")
 
         # For custom JSON processing, determine which fields need processing
         json_fields = self._json_fields
@@ -282,24 +282,15 @@ class BaseRepository(Generic[T, K]):
         for field_name in self._date_fields:
             if field_name in processed_data and processed_data[field_name] is not None:
                 value = processed_data[field_name]
-                if isinstance(value, date) and not isinstance(value, datetime):
-                    # Convert date to ISO string for Pydantic
+                if isinstance(value, (date, datetime)):
+                    # Convert date/datetime to ISO string for Pydantic
                     processed_data[field_name] = value.isoformat()
-                    logger.debug(f"Converted date field '{field_name}' from date to ISO string for {self.table_name}")
+                    logger.debug(f"Converted date field '{field_name}' from {type(value).__name__} to ISO string for {self.table_name}")
 
         # If no JSON fields should be processed, return the processed data
         if not json_fields:
             logger.debug(f"No JSON fields configured for {self.table_name}, skipping JSON postprocessing")
             return processed_data
-
-        # Convert date fields to appropriate format if needed
-        for field_name in self._date_fields:
-            if field_name in data and data[field_name] is not None:
-                value = data[field_name]
-                if isinstance(value, date) and not isinstance(value, datetime):
-                    # Convert date to ISO string for storage
-                    processed_data[field_name] = value.isoformat()
-                    logger.debug(f"Converted date field '{field_name}' to ISO string for {self.table_name}")
 
         for field_name in self._json_fields:
             if field_name in processed_data and processed_data[field_name] is not None:

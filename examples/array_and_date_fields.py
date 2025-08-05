@@ -5,6 +5,10 @@ This example shows how to:
 1. Use array_fields to preserve PostgreSQL arrays instead of JSONB
 2. Use date_fields for automatic date/string conversion
 3. Mix JSONB, arrays, and date fields in one model
+
+Note: You may see "Failed to deserialize JSON field" warnings when running this example.
+These are expected when using auto_detect_json=True with psycopg's JSON adapters enabled,
+as the data is already deserialized by psycopg. The warnings can be safely ignored.
 """
 
 import asyncio
@@ -34,8 +38,8 @@ class OAuthClient(BaseModel):
     # This will be JSONB
     metadata: dict[str, Any]
 
-    # Date field
-    created_at: str  # ISO date string
+    # Date fields (note: these should be TIMESTAMP in real apps)
+    created_at: str  # ISO datetime string
     updated_at: str | None = None
 
 
@@ -65,8 +69,10 @@ class User(BaseModel):
     email: str
 
     # Date fields (as strings in model)
-    birthdate: str | None = None
-    last_login: str | None = None
+    birthdate: str | None = None      # DATE column
+    created_at: str                   # TIMESTAMP column
+    updated_at: str                   # TIMESTAMP column  
+    last_login: str | None = None     # TIMESTAMP column (nullable)
 
     # PostgreSQL array
     roles: list[str]
@@ -87,7 +93,7 @@ class UserRepository(BaseRepository[User, uuid.UUID]):
             primary_key="id",
             auto_detect_json=True,
             array_fields={"roles"},  # Keep roles as PostgreSQL array
-            date_fields={"birthdate", "last_login"}  # Convert dates to strings
+            date_fields={"birthdate", "created_at", "updated_at", "last_login"}  # Convert ALL date/timestamp fields
         )
 
 
@@ -119,8 +125,8 @@ async def setup_database(container_db_url: str):
                 grant_types TEXT[],
                 scopes TEXT[],
                 metadata JSONB NOT NULL,
-                created_at DATE NOT NULL,
-                updated_at DATE
+                created_at TIMESTAMP NOT NULL,
+                updated_at TIMESTAMP
             )
         """)
 
@@ -131,7 +137,9 @@ async def setup_database(container_db_url: str):
                 username VARCHAR(100) UNIQUE NOT NULL,
                 email VARCHAR(255) UNIQUE NOT NULL,
                 birthdate DATE,
-                last_login DATE,
+                created_at TIMESTAMP NOT NULL,
+                updated_at TIMESTAMP NOT NULL,
+                last_login TIMESTAMP,
                 roles TEXT[] NOT NULL,
                 profile JSONB NOT NULL,
                 settings JSONB NOT NULL
@@ -165,7 +173,7 @@ async def demo_array_fields(db: Database):
                 "tier": "premium",
                 "features": ["sso", "webhooks"]
             },
-            created_at=date.today().isoformat()
+            created_at=datetime.now().isoformat()
         )
 
         # Create in database
@@ -187,7 +195,7 @@ async def demo_array_fields(db: Database):
         # Update arrays
         updated = await repo.update(created.id, {
             "scopes": ["read", "write", "admin", "delete"],
-            "updated_at": date.today().isoformat()
+            "updated_at": datetime.now().isoformat()
         })
         print(f"\nUpdated scopes: {updated.scopes}")
 
@@ -203,8 +211,10 @@ async def demo_date_fields(db: Database):
         user = User(
             username="johndoe",
             email="john@example.com",
-            birthdate="1990-05-15",
-            last_login=datetime.now().date().isoformat(),
+            birthdate="1990-05-15",  # DATE field
+            created_at=datetime.now().isoformat(),  # TIMESTAMP field
+            updated_at=datetime.now().isoformat(),  # TIMESTAMP field
+            last_login=datetime.now().isoformat(),  # TIMESTAMP field (nullable)
             roles=["user", "moderator"],
             profile={
                 "bio": "Software developer",
@@ -225,12 +235,14 @@ async def demo_date_fields(db: Database):
         user_id = uuid.uuid4()
         import json
         await conn.execute("""
-            INSERT INTO users (id, username, email, birthdate, last_login, roles, profile, settings)
-            VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
+            INSERT INTO users (id, username, email, birthdate, created_at, updated_at, last_login, roles, profile, settings)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
         """, [
             user_id, "janedoe", "jane@example.com",
-            date(1985, 3, 20),  # PostgreSQL date object
-            date.today(),       # PostgreSQL date object
+            date(1985, 3, 20),      # PostgreSQL date object
+            datetime.now(),         # PostgreSQL datetime object  
+            datetime.now(),         # PostgreSQL datetime object
+            datetime.now(),         # PostgreSQL datetime object
             ["user", "admin"],
             json.dumps({"bio": "Data scientist"}),
             json.dumps({"theme": "light"})

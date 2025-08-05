@@ -170,8 +170,10 @@ For a complete working example, see [examples/array_and_date_fields.py](../examp
 class User(BaseModel):
     id: UUID
     username: str
-    birthdate: Optional[str]  # Expects ISO date string
-    created_at: str           # Expects ISO datetime string
+    birthdate: Optional[str]  # PostgreSQL DATE column
+    created_at: str           # PostgreSQL TIMESTAMP/TIMESTAMPTZ column
+    updated_at: str           # PostgreSQL TIMESTAMP/TIMESTAMPTZ column
+    last_login: Optional[str] # PostgreSQL TIMESTAMP/TIMESTAMPTZ column (nullable)
     metadata: Dict[str, Any]
 
 class UserRepository(BaseRepository[User, UUID]):
@@ -182,14 +184,23 @@ class UserRepository(BaseRepository[User, UUID]):
             model_class=User,
             primary_key="id",
             auto_detect_json=True,
-            date_fields={"birthdate", "created_at"}  # Auto-convert dates
+            # Include ALL date/timestamp fields from your model
+            date_fields={"birthdate", "created_at", "updated_at", "last_login"}
         )
 ```
 
+**Important**: The `date_fields` parameter should include **ALL** date and timestamp fields from your model, not just DATE columns. This includes:
+- DATE columns (e.g., `birthdate`)
+- TIMESTAMP columns (e.g., `created_at`, `updated_at`)
+- TIMESTAMPTZ columns (timezone-aware timestamps)
+- Nullable date/timestamp fields (e.g., `last_login`)
+
 The `date_fields` parameter:
-- Converts PostgreSQL `date` objects to ISO format strings for Pydantic
+- Converts PostgreSQL `date` objects to ISO format strings (YYYY-MM-DD) for Pydantic
+- Converts PostgreSQL `datetime`/`timestamp` objects to ISO format strings (YYYY-MM-DDTHH:MM:SS) for Pydantic
+- Converts PostgreSQL `timestamptz` objects to ISO format strings with timezone info
 - Handles `None` values for optional fields
-- Works with both `DATE` and `TIMESTAMP` PostgreSQL types
+- Works with `DATE`, `TIMESTAMP`, and `TIMESTAMPTZ` PostgreSQL types
 - Only converts when Pydantic model expects string types
 
 ## Configuration Approaches
@@ -859,6 +870,73 @@ class EventRepository(BaseRepository[EventLog, int]):
             
             results = await cur.fetchall()
             return [EventLog(**dict(row)) for row in results]
+```
+
+## Common Pitfalls
+
+### 1. Forgetting to Include All Date/Timestamp Fields
+
+**Problem**: Only including some date fields in `date_fields` parameter.
+
+```python
+# ❌ Incomplete - missing timestamp fields
+class UserRepository(BaseRepository[User, UUID]):
+    def __init__(self, db_connection):
+        super().__init__(
+            db_connection=db_connection,
+            table_name="users",
+            model_class=User,
+            primary_key="id",
+            date_fields={"birthdate"}  # Missing created_at, updated_at, etc.
+        )
+```
+
+**Solution**: Include ALL date and timestamp fields.
+
+```python
+# ✅ Complete - all date/timestamp fields included
+class UserRepository(BaseRepository[User, UUID]):
+    def __init__(self, db_connection):
+        super().__init__(
+            db_connection=db_connection,
+            table_name="users",
+            model_class=User,
+            primary_key="id",
+            date_fields={"birthdate", "created_at", "updated_at", "last_login"}
+        )
+```
+
+### 2. Mixing Array and JSONB List Fields
+
+**Problem**: Forgetting to specify which list fields should remain as PostgreSQL arrays.
+
+```python
+# ❌ All lists become JSONB
+class ClientRepository(BaseRepository[Client, UUID]):
+    def __init__(self, db_connection):
+        super().__init__(
+            db_connection=db_connection,
+            table_name="oauth_clients",
+            model_class=Client,
+            primary_key="id",
+            auto_detect_json=True  # redirect_uris becomes JSONB!
+        )
+```
+
+**Solution**: Use `array_fields` to preserve PostgreSQL arrays.
+
+```python
+# ✅ Preserve PostgreSQL arrays
+class ClientRepository(BaseRepository[Client, UUID]):
+    def __init__(self, db_connection):
+        super().__init__(
+            db_connection=db_connection,
+            table_name="oauth_clients",
+            model_class=Client,
+            primary_key="id",
+            auto_detect_json=True,
+            array_fields={"redirect_uris", "grant_types", "scopes"}
+        )
 ```
 
 ## Troubleshooting

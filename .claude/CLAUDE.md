@@ -232,8 +232,10 @@ class ClientRepository(BaseRepository[OAuthClient, UUID]):
 class User(BaseModel):
     id: UUID
     username: str
-    birthdate: str  # Expects ISO date string
-    created_at: str  # Expects ISO datetime string
+    birthdate: str           # PostgreSQL DATE -> ISO date string
+    created_at: str          # PostgreSQL TIMESTAMP -> ISO datetime string
+    updated_at: str          # PostgreSQL TIMESTAMPTZ -> ISO datetime string
+    last_login: str | None   # Nullable timestamp field
 
 class UserRepository(BaseRepository[User, UUID]):
     def __init__(self, db_connection):
@@ -242,7 +244,8 @@ class UserRepository(BaseRepository[User, UUID]):
             table_name="users",
             model_class=User,
             primary_key="id",
-            date_fields={"birthdate", "created_at"}  # Auto-convert dates
+            # Include ALL date/timestamp fields
+            date_fields={"birthdate", "created_at", "updated_at", "last_login"}
         )
 ```
 
@@ -392,12 +395,15 @@ See `BREAKING_CHANGES.md` for detailed migration guide.
 - Full test coverage including edge cases and performance benchmarks
 - Created comprehensive documentation in `docs/jsonb_support.md`
 
-### Array and Date Field Support (v0.1.8)
+### Array and Date Field Support (v0.2.1+)
 - Added `array_fields` parameter to preserve PostgreSQL arrays (TEXT[], INTEGER[])
 - Added `date_fields` parameter for automatic date/string conversion
+  - **Important**: Include ALL date/timestamp fields (DATE, TIMESTAMP, TIMESTAMPTZ)
+  - Converts both date and datetime objects to ISO strings
 - Fixed auto_detect_json=False not fully disabling JSON processing
 - Improved JSON field detection to exclude array fields
 - Added comprehensive tests and examples for new features
+- Fixed date field conversion to handle both date and datetime objects
 
 ### Code Quality Updates
 - All models now use Pydantic v2 syntax
