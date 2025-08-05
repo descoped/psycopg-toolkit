@@ -21,21 +21,6 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ['3.11', '3.12', '3.13']
-        
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: psycopg_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
     
     steps:
     - name: Checkout code
@@ -58,12 +43,6 @@ jobs:
         uv run ruff check src tests
     
     - name: Run all tests (except performance) with coverage
-      env:
-        POSTGRES_HOST: localhost
-        POSTGRES_PORT: 5432
-        POSTGRES_DB: psycopg_test
-        POSTGRES_USER: postgres
-        POSTGRES_PASSWORD: postgres
       run: |
         # The default pytest configuration excludes performance tests
         uv run pytest -v --tb=short --cov=src/psycopg_toolkit --cov-report=xml --cov-report=term
