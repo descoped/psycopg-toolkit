@@ -18,21 +18,6 @@ jobs:
   benchmark:
     runs-on: ubuntu-latest
     
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: psycopg_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-    
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -52,14 +37,62 @@ jobs:
     # Schema setup handled by test fixtures
     
     - name: Run performance benchmarks
-      env:
-        POSTGRES_HOST: localhost
-        POSTGRES_PORT: 5432
-        POSTGRES_DB: psycopg_test
-        POSTGRES_USER: postgres
-        POSTGRES_PASSWORD: postgres
       run: |
-        # Run only performance-marked tests
-        uv run pytest -m performance -v --tb=short
+        # Run performance tests with output capture
+        uv run pytest -m performance -v --tb=short -s | tee benchmark-output.txt
     
-    # Benchmark results are displayed in console output
+    - name: Generate benchmark summary
+      if: always()
+      run: |
+        echo "## 📊 Performance Benchmark Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Extract performance metrics from output
+        if [ -f benchmark-output.txt ]; then
+          echo "### Performance Metrics" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          # Extract lines containing performance data
+          grep -E "===|avg=|total=|per record=|overhead:" benchmark-output.txt | grep -v "test session starts" | grep -v "passed," >> $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Test summary
+          echo "### Test Summary" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -E "(PASSED|FAILED|test_)" benchmark-output.txt | tail -20 >> $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Metadata" >> $GITHUB_STEP_SUMMARY
+        echo "- **Run Date**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+        echo "- **Python Version**: ${{ env.PYTHON_VERSION }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Workflow Run**: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+    
+    - name: Process benchmark results
+      if: always()
+      run: |
+        # Create a consolidated results file
+        echo "# Performance Benchmark Report" > benchmark-results.md
+        echo "Generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> benchmark-results.md
+        echo "" >> benchmark-results.md
+        
+        if [ -f benchmark-output.txt ]; then
+          echo "## Raw Output" >> benchmark-results.md
+          echo '```' >> benchmark-results.md
+          cat benchmark-output.txt >> benchmark-results.md
+          echo '```' >> benchmark-results.md
+        fi
+    
+    - name: Upload benchmark artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: benchmark-results-${{ github.run_id }}
+        path: |
+          benchmark-output.txt
+          benchmark-results.md
+        retention-days: 30
+        if-no-files-found: warn

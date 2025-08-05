@@ -80,7 +80,7 @@ jobs:
 
     - name: Run tests
       run: |
-        uv run pytest -v --tb=short
+        uv run pytest -v --tb=short -m "not performance"
 
 
   build-and-publish:
