@@ -384,7 +384,7 @@ class TestJSONBPerformanceExtended:
             async with jsonb_tables.cursor() as cur:
                 # Clean up any existing data
                 await cur.execute("DROP TABLE IF EXISTS regular_normalized CASCADE")
-                
+
                 # Regular normalized table
                 await cur.execute("""
                     CREATE TABLE IF NOT EXISTS regular_normalized (
