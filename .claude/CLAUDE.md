@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is **psycopg-toolkit**, a robust PostgreSQL database toolkit for Python applications. It provides enterprise-grade connection pooling, transaction management, and a type-safe repository pattern with Pydantic validation.
 
+**Requirements**: Python 3.11+ | PostgreSQL 12+
+
 ### Key Features
 - Async/await support using psycopg3
 - Connection pooling with automatic retry
@@ -19,26 +21,28 @@ This is **psycopg-toolkit**, a robust PostgreSQL database toolkit for Python app
 
 ### Core Development
 - **Install dependencies**: `uv sync --all-groups`
-- **Run tests**: `uv run pytest`
+- **Run tests**: `uv run pytest` (excludes performance tests by default)
 - **Run specific test category**: 
-  - Unit tests: `uv run pytest tests/unit`
-  - Integration tests: `uv run pytest tests/integration`
-  - Edge cases: `uv run pytest tests/edge_cases`
-  - Performance: `uv run pytest tests/performance`
-  - JSONB tests: `uv run pytest tests/test_jsonb.py -v`
+  - All tests including performance: `uv run pytest -m ""`
+  - Only performance tests: `uv run pytest -m performance`
+  - Only integration tests: `uv run pytest -m integration`
+  - Unit tests only: `uv run pytest -m "not integration and not performance"`
 - **Build package**: `uv build`
 - **Lint code**: `uv run ruff check`
 - **Format code**: `uv run ruff format`
+- **Fix linting issues**: `uv run ruff check --fix`
 
 ### Testing
 - Tests use pytest with asyncio support
 - Integration tests use testcontainers with PostgreSQL 17
-- Test categories:
-  - `tests/unit/` - Fast unit tests, no database required
-  - `tests/integration/` - Database integration tests
-  - `tests/edge_cases/` - Edge case and error handling tests
-  - `tests/performance/` - Performance benchmarks
-- JSONB test schema: `uv run python tests/schema/manage_test_schema.py setup`
+- Test categories are marked with pytest markers:
+  - `@pytest.mark.asyncio` - Async tests (auto-detected)
+  - `@pytest.mark.integration` - Database integration tests
+  - `@pytest.mark.performance` - Performance benchmarks (excluded by default)
+- Test organization:
+  - Unit tests: Throughout the codebase
+  - Integration tests: Tests requiring database
+  - Performance tests: `tests/performance/`
 
 ## Architecture
 
@@ -69,6 +73,7 @@ This is **psycopg-toolkit**, a robust PostgreSQL database toolkit for Python app
    - SQL query builder with injection protection
    - Supports INSERT, SELECT, UPDATE, DELETE operations
    - Batch query generation
+   - Uses psycopg's SQL composition for safety
 
 ### JSONB Support Components
 1. **JSONHandler** (`src/psycopg_toolkit/utils/json_handler.py`)
@@ -200,11 +205,15 @@ settings = DatabaseSettings(
   - Performance benchmarks comparing JSONB vs non-JSONB
 
 ## CI/CD
-- GitHub Actions workflow tests against Python 3.11, 3.12, and 3.13
+- GitHub Actions workflows:
+  - `build-test.yml`: Main CI/CD (excludes performance tests)
+  - `benchmark.yml`: Performance testing (runs on PR or manual trigger)
+  - `release.yml`: PyPI release automation
+- Tests against Python 3.11, 3.12, and 3.13
 - PostgreSQL 17 in CI environment
-- Automatic test schema setup for integration tests
 - Coverage reporting to Codecov
 - Renovate for dependency updates
+- Linting with ruff (replaces flake8)
 
 ## Project Structure
 ```
@@ -231,11 +240,22 @@ psycopg-toolkit/
 └── docs/                   # Documentation
 ```
 
-## Recent Changes (JSONB Implementation)
-- Added comprehensive JSONB support (97.5% complete)
+## Recent Changes
+### JSONB Implementation (v0.1.7)
+- Added comprehensive JSONB support
 - Automatic detection of JSON fields from Pydantic models
 - Seamless serialization/deserialization of complex Python types
 - Support for both custom processing and psycopg native adapters
 - Full test coverage including edge cases and performance benchmarks
-- Updated CI/CD for Python 3.11, 3.12, and 3.13 support
-- Complete documentation and examples
+- Performance benchmarks excluded from default test runs
+
+### Code Quality Updates
+- Migrated from flake8 to ruff for linting
+- Updated type annotations to use Python 3.10+ syntax (X | Y)
+- Fixed TypeInspector to handle modern Union types
+- Maintained backwards compatibility for exception names (no Error suffix)
+
+### CI/CD Improvements
+- Simplified test workflows using pytest markers
+- Performance tests run in dedicated benchmark workflow
+- Support for Python 3.11, 3.12, and 3.13

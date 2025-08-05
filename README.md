@@ -214,9 +214,32 @@ except RecordNotFoundError:
 # Install dependencies
 uv sync --all-groups
 
-# Run tests
+# Run all tests except performance tests (default)
 uv run pytest
+
+# Run only performance tests
+uv run pytest -m performance
+
+# Run all tests including performance
+uv run pytest -m ""
+
+# Run specific test categories
+uv run pytest -m integration  # Only integration tests
+uv run pytest -m "not integration and not performance"  # Unit tests only
+
+# Run with coverage
+uv run pytest --cov=src/psycopg_toolkit --cov-report=html
 ```
+
+### Test Categories
+
+The test suite is organized into three categories:
+
+- **Unit tests**: Fast, isolated tests that don't require a database
+- **Integration tests**: Tests that require a real PostgreSQL database (marked with `@pytest.mark.integration`)
+- **Performance tests**: Benchmarks and performance measurements (marked with `@pytest.mark.performance`)
+
+Performance tests are excluded by default to keep the regular test runs fast. Use the `-m performance` flag to run them explicitly.
 
 ## Contributing
 

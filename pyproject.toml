@@ -108,6 +108,7 @@ addopts = [
     "--verbose",
     "--strict-markers",
     "--tb=short",
+    "-m", "not performance",  # Exclude performance tests by default
 ]
 
 [tool.coverage.run]

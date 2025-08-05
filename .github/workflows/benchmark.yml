@@ -67,15 +67,8 @@ jobs:
         POSTGRES_USER: postgres
         POSTGRES_PASSWORD: postgres
       run: |
-        # Create performance test directory if it doesn't exist
-        mkdir -p tests/performance
-        
-        # Run benchmarks if they exist
-        if [ -d "tests/performance" ] && [ -n "$(find tests/performance -name 'test_*.py' -type f)" ]; then
-          uv run pytest tests/performance -v --tb=short
-        else
-          echo "No performance tests found, skipping..."
-        fi
+        # Run only performance-marked tests
+        uv run pytest -m performance -v --tb=short
     
     - name: Upload benchmark results
       if: always()
