@@ -2,6 +2,12 @@ name: Performance Benchmarks
 
 on:
   workflow_dispatch:
+    inputs:
+      run_extended:
+        description: 'Run extended performance tests (takes longer)'
+        required: false
+        type: boolean
+        default: true
   pull_request:
     branches:
       - master
@@ -39,7 +45,14 @@ jobs:
     - name: Run performance benchmarks
       run: |
         # Run performance tests with output capture
-        uv run pytest -m performance -v --tb=short -s | tee benchmark-output.txt
+        echo "Running standard performance tests..."
+        uv run pytest tests/performance/test_jsonb_performance.py -m performance -v --tb=short -s | tee benchmark-output.txt
+        
+        # Run extended performance tests if requested
+        if [[ "${{ github.event.inputs.run_extended }}" == "true" ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          echo -e "\n\nRunning extended performance tests..."
+          uv run pytest tests/performance/test_jsonb_performance_extended.py -m performance -v --tb=short -s | tee -a benchmark-output.txt
+        fi
     
     - name: Generate benchmark summary
       if: always()
