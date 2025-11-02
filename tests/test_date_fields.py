@@ -41,7 +41,7 @@ class StringDateRepository(BaseRepository[ModelWithStringDates, UUID]):
             table_name="date_test",
             model_class=ModelWithStringDates,
             primary_key="id",
-            date_fields={"created_date", "updated_date", "created_timestamp"}  # Convert dates/datetimes to strings
+            date_fields={"created_date", "updated_date", "created_timestamp"},  # Convert dates/datetimes to strings
         )
 
 
@@ -54,7 +54,7 @@ class DateObjectRepository(BaseRepository[ModelWithDateObjects, UUID]):
             table_name="date_test",
             model_class=ModelWithDateObjects,
             primary_key="id",
-            date_fields={"created_date", "updated_date", "created_timestamp"}  # Handle date/datetime conversion
+            date_fields={"created_date", "updated_date", "created_timestamp"},  # Handle date/datetime conversion
         )
 
 
@@ -95,10 +95,13 @@ class TestDateFields:
 
         # Insert data directly with PostgreSQL date
         test_id = uuid4()
-        await conn.execute("""
+        await conn.execute(
+            """
             INSERT INTO date_test (id, name, created_date, updated_date)
             VALUES (%s, %s, %s, %s)
-        """, [test_id, "test", date(2024, 1, 15), date(2024, 1, 20)])
+        """,
+            [test_id, "test", date(2024, 1, 15), date(2024, 1, 20)],
+        )
         await conn.commit()
 
         # Retrieve - dates should be converted to strings
@@ -115,10 +118,7 @@ class TestDateFields:
         repo = DateObjectRepository(conn)
 
         model = ModelWithDateObjects(
-            id=uuid4(),
-            name="date_test",
-            created_date=date(2024, 3, 1),
-            updated_date=date(2024, 3, 15)
+            id=uuid4(), name="date_test", created_date=date(2024, 3, 1), updated_date=date(2024, 3, 15)
         )
 
         created = await repo.create(model)
@@ -138,10 +138,13 @@ class TestDateFields:
 
         # Insert with None date
         test_id = uuid4()
-        await conn.execute("""
+        await conn.execute(
+            """
             INSERT INTO date_test (id, name, created_date, updated_date)
             VALUES (%s, %s, %s, %s)
-        """, [test_id, "none_test", date(2024, 1, 1), None])
+        """,
+            [test_id, "none_test", date(2024, 1, 1), None],
+        )
         await conn.commit()
 
         retrieved = await repo.get_by_id(test_id)
@@ -155,21 +158,14 @@ class TestDateFields:
         repo = StringDateRepository(conn)
 
         # Create with string dates
-        model = ModelWithStringDates(
-            id=uuid4(),
-            name="crud_test",
-            created_date="2024-02-01",
-            updated_date="2024-02-05"
-        )
+        model = ModelWithStringDates(id=uuid4(), name="crud_test", created_date="2024-02-01", updated_date="2024-02-05")
 
         # Should handle string to date conversion for storage
         created = await repo.create(model)
         assert created.created_date == "2024-02-01"
 
         # Update with new date
-        updated = await repo.update(created.id, {
-            "updated_date": "2024-02-10"
-        })
+        updated = await repo.update(created.id, {"updated_date": "2024-02-10"})
         assert updated.updated_date == "2024-02-10"
 
     @pytest.mark.asyncio
@@ -184,7 +180,7 @@ class TestDateFields:
                     db_connection=db_connection,
                     table_name="date_test",
                     model_class=ModelWithStringDates,
-                    primary_key="id"
+                    primary_key="id",
                     # No date_fields parameter
                 )
 
@@ -192,10 +188,13 @@ class TestDateFields:
 
         # Insert data
         test_id = uuid4()
-        await conn.execute("""
+        await conn.execute(
+            """
             INSERT INTO date_test (id, name, created_date)
             VALUES (%s, %s, %s)
-        """, [test_id, "no_conversion", date(2024, 1, 1)])
+        """,
+            [test_id, "no_conversion", date(2024, 1, 1)],
+        )
         await conn.commit()
 
         # Without date_fields, this will fail with validation error
@@ -213,10 +212,13 @@ class TestDateFields:
 
         # Insert data directly with PostgreSQL datetime
         test_id = uuid4()
-        await conn.execute("""
+        await conn.execute(
+            """
             INSERT INTO date_test (id, name, created_date, created_timestamp)
             VALUES (%s, %s, %s, %s)
-        """, [test_id, "datetime_test", date(2024, 1, 15), datetime(2024, 1, 15, 14, 30, 45)])
+        """,
+            [test_id, "datetime_test", date(2024, 1, 15), datetime(2024, 1, 15, 14, 30, 45)],
+        )
         await conn.commit()
 
         # Retrieve - datetime should be converted to ISO string

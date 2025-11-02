@@ -187,7 +187,9 @@ class BaseRepository(Generic[T, K]):
                 if isinstance(value, date | datetime):
                     # Convert date/datetime to ISO string for storage
                     processed_data[field_name] = value.isoformat()
-                    logger.debug(f"Converted date field '{field_name}' from {type(value).__name__} to ISO string for {self.table_name}")
+                    logger.debug(
+                        f"Converted date field '{field_name}' from {type(value).__name__} to ISO string for {self.table_name}"
+                    )
 
         # For custom JSON processing, determine which fields need processing
         json_fields = self._json_fields
@@ -285,7 +287,9 @@ class BaseRepository(Generic[T, K]):
                 if isinstance(value, date | datetime):
                     # Convert date/datetime to ISO string for Pydantic
                     processed_data[field_name] = value.isoformat()
-                    logger.debug(f"Converted date field '{field_name}' from {type(value).__name__} to ISO string for {self.table_name}")
+                    logger.debug(
+                        f"Converted date field '{field_name}' from {type(value).__name__} to ISO string for {self.table_name}"
+                    )
 
         # If no JSON fields should be processed, return the processed data
         if not json_fields:

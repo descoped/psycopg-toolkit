@@ -84,7 +84,9 @@ class Database:
         """
         try:
             logger.info(f"Pinging PostgreSQL at {self._settings.host}")
-            conn = await AsyncConnection.connect(self._settings.get_connection_string(self._settings.connection_timeout))
+            conn = await AsyncConnection.connect(
+                self._settings.get_connection_string(self._settings.connection_timeout)
+            )
             await conn.close()
             logger.info("Successfully connected to PostgreSQL")
             return True

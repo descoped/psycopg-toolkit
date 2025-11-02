@@ -30,7 +30,7 @@ class ArrayFieldRepository(BaseRepository[ModelWithArrays, UUID]):
             model_class=ModelWithArrays,
             primary_key="id",
             auto_detect_json=True,  # Will detect all list/dict fields as JSON
-            array_fields={"tags", "categories"}  # But these should remain arrays
+            array_fields={"tags", "categories"},  # But these should remain arrays
         )
 
 
@@ -76,7 +76,7 @@ class TestArrayFields:
             tags=["python", "async", "database"],
             categories=["backend", "orm"],
             metadata={"version": "1.0", "author": "test"},
-            settings={"theme": "dark"}
+            settings={"theme": "dark"},
         )
 
         # Create should work with arrays preserved
@@ -86,10 +86,7 @@ class TestArrayFields:
 
         # Verify arrays are stored correctly in database
         async with conn.cursor() as cur:
-            await cur.execute(
-                "SELECT tags, categories FROM array_test WHERE id = %s",
-                [created.id]
-            )
+            await cur.execute("SELECT tags, categories FROM array_test WHERE id = %s", [created.id])
             result = await cur.fetchone()
 
             # Should be PostgreSQL arrays, not JSON
@@ -110,18 +107,12 @@ class TestArrayFields:
                     primary_key="id",
                     auto_detect_json=False,
                     json_fields={"metadata", "settings"},  # Explicit JSON fields
-                    array_fields={"tags", "categories"}
+                    array_fields={"tags", "categories"},
                 )
 
         repo = NoAutoDetectRepo(conn)
 
-        model = ModelWithArrays(
-            id=uuid4(),
-            name="test2",
-            tags=["test"],
-            categories=["test"],
-            metadata={"key": "value"}
-        )
+        model = ModelWithArrays(id=uuid4(), name="test2", tags=["test"], categories=["test"], metadata={"key": "value"})
 
         created = await repo.create(model)
         assert created.tags == ["test"]
@@ -133,13 +124,7 @@ class TestArrayFields:
         conn = array_test_table
         repo = ArrayFieldRepository(conn)
 
-        model = ModelWithArrays(
-            id=uuid4(),
-            name="empty_test",
-            tags=[],
-            categories=[],
-            metadata={}
-        )
+        model = ModelWithArrays(id=uuid4(), name="empty_test", tags=[], categories=[], metadata={})
 
         created = await repo.create(model)
         assert created.tags == []
@@ -158,30 +143,20 @@ class TestArrayFields:
 
         # Create initial model
         model = ModelWithArrays(
-            id=uuid4(),
-            name="update_test",
-            tags=["v1"],
-            categories=["initial"],
-            metadata={"version": "1.0"}
+            id=uuid4(), name="update_test", tags=["v1"], categories=["initial"], metadata={"version": "1.0"}
         )
 
         created = await repo.create(model)
 
         # Update arrays
-        updated = await repo.update(created.id, {
-            "tags": ["v1", "v2", "v3"],
-            "categories": ["initial", "updated"]
-        })
+        updated = await repo.update(created.id, {"tags": ["v1", "v2", "v3"], "categories": ["initial", "updated"]})
 
         assert updated.tags == ["v1", "v2", "v3"]
         assert updated.categories == ["initial", "updated"]
 
         # Verify in database
         async with conn.cursor() as cur:
-            await cur.execute(
-                "SELECT tags, categories FROM array_test WHERE id = %s",
-                [created.id]
-            )
+            await cur.execute("SELECT tags, categories FROM array_test WHERE id = %s", [created.id])
             result = await cur.fetchone()
             assert len(result[0]) == 3
             assert len(result[1]) == 2

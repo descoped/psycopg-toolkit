@@ -74,7 +74,9 @@ async def test_ping_postgres_success(database):
 @pytest.mark.asyncio
 async def test_ping_postgres_failure(database):
     with (
-        patch("psycopg_toolkit.core.database.AsyncConnection.connect", side_effect=OperationalError("Connection failed")),
+        patch(
+            "psycopg_toolkit.core.database.AsyncConnection.connect", side_effect=OperationalError("Connection failed")
+        ),
         patch("tenacity.wait.wait_exponential.__call__", return_value=0),
         pytest.raises(RetryError),
     ):
