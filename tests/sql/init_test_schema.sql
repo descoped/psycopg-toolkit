@@ -1,6 +1,9 @@
 -- Initialize test schema for JSONB tests
 -- This file is mounted to the test container and executed on startup
 
+-- Enable pgvector extension for vector tests
+CREATE EXTENSION IF NOT EXISTS vector;
+
 -- Simple JSONB table with SERIAL ID
 CREATE TABLE IF NOT EXISTS jsonb_simple (
     id SERIAL PRIMARY KEY,
@@ -69,3 +72,14 @@ CREATE INDEX IF NOT EXISTS idx_jsonb_performance_small ON jsonb_performance USIN
 CREATE INDEX IF NOT EXISTS idx_jsonb_performance_medium ON jsonb_performance USING GIN (medium_data);
 CREATE INDEX IF NOT EXISTS idx_jsonb_performance_large ON jsonb_performance USING GIN (large_data);
 CREATE INDEX IF NOT EXISTS idx_jsonb_edge_cases_data ON jsonb_edge_cases USING GIN (test_data);
+
+-- Vector table for pgvector tests
+CREATE TABLE IF NOT EXISTS vectors (
+    id UUID PRIMARY KEY,
+    name TEXT NOT NULL,
+    embedding vector(384) NOT NULL,
+    metadata JSONB
+);
+
+-- Create index for vector similarity search
+CREATE INDEX IF NOT EXISTS idx_vectors_embedding ON vectors USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);

@@ -59,6 +59,108 @@ class TypeInspector:
         return json_fields
 
     @staticmethod
+    def detect_vector_fields(model_class: type[BaseModel]) -> set[str]:
+        """Detect which fields should be treated as pgvector based on type annotations.
+
+        Analyzes the Pydantic model's field annotations to identify fields with
+        list[float] type that should be stored as vector in PostgreSQL using pgvector.
+
+        Args:
+            model_class: The Pydantic model class to inspect
+
+        Returns:
+            Set of field names that should be treated as vector fields
+
+        Example:
+            >>> class Embedding(BaseModel):
+            ...     id: int
+            ...     vector_data: list[float]
+            ...     tags: list[str]  # Not detected - not list[float]
+            >>> TypeInspector.detect_vector_fields(Embedding)
+            {'vector_data'}
+        """
+        vector_fields = set()
+
+        try:
+            for field_name, field_info in model_class.model_fields.items():
+                if TypeInspector._is_vector_field(field_info):
+                    vector_fields.add(field_name)
+                    logger.debug(f"Detected vector field '{field_name}' in {model_class.__name__}")
+        except Exception as e:
+            logger.warning(f"Error detecting vector fields in {model_class.__name__}: {e}")
+
+        logger.debug(f"Detected {len(vector_fields)} vector fields in {model_class.__name__}: {vector_fields}")
+        return vector_fields
+
+    @staticmethod
+    def _is_vector_field(field_info: FieldInfo) -> bool:
+        """Check if a field should be treated as vector based on its type annotation.
+
+        Args:
+            field_info: Pydantic field information including type annotation
+
+        Returns:
+            True if the field should be treated as vector (list[float]), False otherwise
+        """
+        annotation = field_info.annotation
+        return TypeInspector._is_vector_type(annotation)
+
+    @staticmethod
+    def _is_vector_type(annotation: Any) -> bool:
+        """Check if a type annotation represents a vector type (list[float]).
+
+        Args:
+            annotation: Type annotation to analyze
+
+        Returns:
+            True if the type is list[float], False otherwise
+        """
+        if annotation is None:
+            return False
+
+        # Check direct list[float]
+        if TypeInspector._is_list_of_float(annotation):
+            return True
+
+        # Check Union types (e.g., list[float] | None, Optional[list[float]])
+        origin = typing.get_origin(annotation)
+        if origin is Union or (sys.version_info >= (3, 10) and isinstance(annotation, types.UnionType)):
+            args = typing.get_args(annotation)
+            # Check if any non-None type in the Union is list[float]
+            for arg in args:
+                if arg is not type(None) and TypeInspector._is_list_of_float(arg):
+                    return True
+
+        return False
+
+    @staticmethod
+    def _is_list_of_float(annotation: Any) -> bool:
+        """Check if annotation is specifically list[float].
+
+        Args:
+            annotation: Type annotation to check
+
+        Returns:
+            True if annotation is list[float], False otherwise
+        """
+        origin = typing.get_origin(annotation)
+
+        # Check for list origin
+        if origin is list:
+            args = typing.get_args(annotation)
+            # Must have exactly one argument and it must be float
+            if args and len(args) == 1 and args[0] is float:
+                return True
+
+        # Check for legacy typing.List[float]
+        if hasattr(annotation, "__origin__") and annotation.__origin__ is list:
+            args = getattr(annotation, "__args__", ())
+            if args and len(args) == 1 and args[0] is float:
+                return True
+
+        return False
+
+    @staticmethod
     def _is_json_field(field_info: FieldInfo) -> bool:
         """Check if a field should be treated as JSON based on its type annotation.
 

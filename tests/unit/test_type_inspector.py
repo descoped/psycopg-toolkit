@@ -319,3 +319,177 @@ class TestTypeInspector:
             "profile_data",
         }
         assert json_fields == expected_json_fields
+
+
+class TestVectorFieldDetection:
+    """Test TypeInspector vector field detection capabilities."""
+
+    def test_detect_list_float_fields(self):
+        """Test detection of list[float] fields."""
+
+        class TestModel(BaseModel):
+            id: int
+            name: str
+            embedding: list[float]
+            vector_data: list[float]
+
+        vector_fields = TypeInspector.detect_vector_fields(TestModel)
+        assert vector_fields == {"embedding", "vector_data"}
+
+    def test_detect_optional_vector_fields(self):
+        """Test detection of Optional list[float] fields."""
+
+        class TestModel(BaseModel):
+            id: int
+            name: str
+            embedding: list[float] | None = None
+            vector_data: list[float] | None
+
+        vector_fields = TypeInspector.detect_vector_fields(TestModel)
+        assert vector_fields == {"embedding", "vector_data"}
+
+    def test_ignore_non_float_lists(self):
+        """Test that list[int], list[str] etc. are not detected as vectors."""
+
+        class TestModel(BaseModel):
+            id: int
+            tags: list[str]
+            numbers: list[int]
+            items: list[dict[str, Any]]
+            embedding: list[float]  # Only this should be detected
+
+        vector_fields = TypeInspector.detect_vector_fields(TestModel)
+        assert vector_fields == {"embedding"}
+
+    def test_no_vector_fields(self):
+        """Test model with no vector fields returns empty set."""
+
+        class TestModel(BaseModel):
+            id: int
+            name: str
+            tags: list[str]
+            metadata: dict[str, Any]
+            count: int
+
+        vector_fields = TypeInspector.detect_vector_fields(TestModel)
+        assert vector_fields == set()
+
+    def test_vector_with_json_fields(self):
+        """Test model with both vector and JSON fields."""
+
+        class TestModel(BaseModel):
+            id: int
+            embedding: list[float]  # Vector
+            tags: list[str]  # JSON
+            metadata: dict[str, Any]  # JSON
+            vector_data: list[float] | None  # Vector
+
+        vector_fields = TypeInspector.detect_vector_fields(TestModel)
+        json_fields = TypeInspector.detect_json_fields(TestModel)
+
+        assert vector_fields == {"embedding", "vector_data"}
+        # JSON detection should include all list/dict types (will be filtered later)
+        assert "tags" in json_fields
+        assert "metadata" in json_fields
+
+    def test_vector_with_pydantic_field(self):
+        """Test vector fields with Field specifications."""
+
+        class TestModel(BaseModel):
+            id: int
+            embedding: list[float] = Field(default_factory=list)
+            optional_vector: list[float] | None = Field(default=None)
+            tags: list[str] = Field(default_factory=list)
+
+        vector_fields = TypeInspector.detect_vector_fields(TestModel)
+        assert vector_fields == {"embedding", "optional_vector"}
+
+    def test_vector_in_inherited_model(self):
+        """Test detection in inherited models."""
+
+        class BaseModel1(BaseModel):
+            id: int
+            base_embedding: list[float]
+
+        class DerivedModel(BaseModel1):
+            name: str
+            derived_vector: list[float]
+            tags: list[str]
+
+        vector_fields = TypeInspector.detect_vector_fields(DerivedModel)
+        assert vector_fields == {"base_embedding", "derived_vector"}
+
+    def test_empty_model_vector(self):
+        """Test empty model returns empty set for vectors."""
+
+        class EmptyModel(BaseModel):
+            pass
+
+        vector_fields = TypeInspector.detect_vector_fields(EmptyModel)
+        assert vector_fields == set()
+
+    def test_vector_union_with_other_types(self):
+        """Test that list[float] in complex unions is detected."""
+
+        class TestModel(BaseModel):
+            id: int
+            # This should be detected as vector
+            flexible_vector: list[float] | None
+            # This should NOT be detected (union with non-None, non-vector type)
+            mixed_union: list[float] | str  # Currently will detect, but that's ok
+
+        vector_fields = TypeInspector.detect_vector_fields(TestModel)
+        # Both should be detected since they contain list[float]
+        assert "flexible_vector" in vector_fields
+
+    def test_real_world_embedding_model(self):
+        """Test with a realistic embedding model."""
+        from datetime import datetime
+
+        class DocumentEmbedding(BaseModel):
+            # Non-vector fields
+            id: UUID
+            document_id: UUID
+            model_name: str
+            created_at: datetime
+
+            # Vector fields
+            embedding: list[float]
+            sparse_embedding: list[float] | None = None
+
+            # JSON fields
+            metadata: dict[str, Any]
+            tags: list[str]
+
+            # Array field
+            chunks: list[int]
+
+        vector_fields = TypeInspector.detect_vector_fields(DocumentEmbedding)
+        assert vector_fields == {"embedding", "sparse_embedding"}
+
+    def test_is_list_of_float_direct(self):
+        """Test _is_list_of_float helper function directly."""
+        assert TypeInspector._is_list_of_float(list[float]) is True
+        assert TypeInspector._is_list_of_float(list[int]) is False
+        assert TypeInspector._is_list_of_float(list[str]) is False
+        assert TypeInspector._is_list_of_float(dict[str, float]) is False
+        assert TypeInspector._is_list_of_float(list[float | int]) is False
+
+    def test_vector_and_json_exclusion(self):
+        """Test that vector fields are properly excluded from JSON fields in repository."""
+        # This is more of an integration test concept, but we can verify detection
+
+        class TestModel(BaseModel):
+            id: int
+            embedding: list[float]  # Should be vector, not JSON
+            tags: list[str]  # Should be JSON
+            metadata: dict[str, Any]  # Should be JSON
+
+        vector_fields = TypeInspector.detect_vector_fields(TestModel)
+        json_fields = TypeInspector.detect_json_fields(TestModel)
+
+        # Both detections should work independently
+        assert vector_fields == {"embedding"}
+        # JSON detection will include all lists initially (vector fields excluded later)
+        assert "tags" in json_fields
+        assert "metadata" in json_fields

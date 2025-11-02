@@ -14,6 +14,7 @@ This is **psycopg-toolkit**, a robust PostgreSQL database toolkit for Python app
 - Type-safe repository pattern with generics
 - Transaction management with savepoints
 - **Comprehensive JSONB support with automatic serialization/deserialization**
+- **Native pgvector support with automatic vector field detection**
 - Pydantic v2 model integration
 - Comprehensive error handling
 - Full control over JSON processing modes
@@ -23,10 +24,10 @@ This is **psycopg-toolkit**, a robust PostgreSQL database toolkit for Python app
 ### Core Development
 - **Install dependencies**: `uv sync --all-groups`
 - **Run tests**: `uv run pytest` (excludes performance tests by default)
-- **Run specific test category**: 
+- **Run specific test category**:
   - All tests including performance: `uv run pytest -m ""`
   - Only performance tests: `uv run pytest -m performance`
-  - Only integration tests: `uv run pytest tests/ -k "not unit and not performance"`
+  - Only integration tests: `uv run pytest tests/integration/`
   - Unit tests only: `uv run pytest tests/unit/`
 - **Build package**: `uv build`
 - **Lint code**: `uv run ruff check`
@@ -36,15 +37,14 @@ This is **psycopg-toolkit**, a robust PostgreSQL database toolkit for Python app
 
 ### Testing
 - Tests use pytest with asyncio support
-- Integration tests use testcontainers with PostgreSQL 17
+- Integration tests use testcontainers with pgvector/pgvector:pg17
 - Test categories are marked with pytest markers:
   - `@pytest.mark.asyncio` - Async tests (auto-detected)
-  - Integration tests are at root level in `tests/` (no marker needed)
   - `@pytest.mark.performance` - Performance benchmarks (excluded by default)
 - Test organization:
-  - Unit tests: `tests/unit/`
-  - Integration tests: `tests/test_*.py` (root level)
-  - Performance tests: `tests/performance/`
+  - Unit tests: `tests/unit/` (mocked, no database)
+  - Integration tests: `tests/integration/` (real PostgreSQL via testcontainers)
+  - Performance tests: `tests/performance/` (benchmarks)
   - Test utilities: `tests/repositories/`, `tests/conftest.py`
 
 ## Architecture
@@ -70,18 +70,32 @@ This is **psycopg-toolkit**, a robust PostgreSQL database toolkit for Python app
    - Supports generic primary key types (UUID, int, str)
    - Bulk operations with batching
    - **Automatic JSONB field detection from type hints**
+   - **Automatic pgvector field detection from `list[float]` type hints**
    - **Three JSON processing modes**:
      - Auto-detection with custom processing
      - psycopg native adapters
      - Completely disabled
    - **Array field preservation** via `array_fields` parameter
    - **Automatic date conversion** via `date_fields` parameter
+   - **Vector field support** via `vector_fields` parameter
 
 4. **PsycopgHelper** (`src/psycopg_toolkit/utils/psychopg_helper.py`)
    - SQL query builder with injection protection
    - Supports INSERT, SELECT, UPDATE, DELETE operations
    - Batch query generation
    - Uses psycopg's SQL composition for safety
+
+### pgvector Support Components
+1. **TypeInspector** (`src/psycopg_toolkit/utils/type_inspector.py`)
+   - Automatic detection of `list[float]` fields for pgvector
+   - Supports Optional[list[float]] and list[float] | None
+   - Excludes vector fields from JSON processing
+
+2. **BaseRepository** (`src/psycopg_toolkit/repositories/base.py`)
+   - Lazy async registration of pgvector adapter
+   - Per-connection adapter registration
+   - Graceful degradation if pgvector not installed
+   - `vector_fields` and `auto_detect_vector` parameters
 
 ### JSONB Support Components
 1. **JSONHandler** (`src/psycopg_toolkit/utils/json_handler.py`)
@@ -249,6 +263,39 @@ class UserRepository(BaseRepository[User, UUID]):
         )
 ```
 
+### Using pgvector Fields (Automatic Detection)
+```python
+# Automatically detect and handle vector fields
+class DocumentEmbedding(BaseModel):
+    id: UUID
+    document_id: UUID
+    embedding: list[float]              # Auto-detected as vector
+    sparse_embedding: list[float] | None = None  # Optional vector
+    metadata: dict[str, Any] | None = None       # JSON field
+
+class EmbeddingRepository(BaseRepository[DocumentEmbedding, UUID]):
+    def __init__(self, db_connection):
+        super().__init__(
+            db_connection=db_connection,
+            table_name="embeddings",
+            model_class=DocumentEmbedding,
+            primary_key="id",
+            auto_detect_vector=True,  # default - detects list[float]
+            auto_detect_json=True,    # default - detects dict/list
+        )
+
+# Usage - vectors work seamlessly
+embedding_vector = [0.1] * 384  # 384-dimensional vector
+doc = DocumentEmbedding(
+    id=uuid4(),
+    document_id=uuid4(),
+    embedding=embedding_vector,
+    metadata={"model": "all-MiniLM-L6-v2"}
+)
+created = await repo.create(doc)
+assert isinstance(created.embedding, list)  # Returns as list[float], not string!
+```
+
 ## Configuration
 
 ### Database Settings
@@ -261,6 +308,8 @@ class UserRepository(BaseRepository[User, UUID]):
 ### Repository Configuration
 - `auto_detect_json` (default: True) - Automatically detect JSON fields
 - `json_fields` - Explicitly specify JSON field names (overrides auto-detection)
+- `auto_detect_vector` (default: True) - Automatically detect vector fields
+- `vector_fields` - Explicitly specify vector field names (overrides auto-detection)
 - `strict_json_processing` (default: False) - Raise exceptions on JSON errors
 - `array_fields` - Preserve PostgreSQL arrays (TEXT[], INTEGER[]) instead of JSONB
 - `date_fields` - Automatically convert PostgreSQL date/timestamp to/from strings
@@ -316,12 +365,12 @@ psycopg-toolkit/
 │   │   └── transaction.py  # Transaction management
 │   ├── repositories/
 │   │   ├── __init__.py
-│   │   └── base.py         # BaseRepository with JSONB
+│   │   └── base.py         # BaseRepository with JSONB & pgvector
 │   ├── utils/
 │   │   ├── __init__.py
 │   │   ├── json_handler.py     # JSON serialization
 │   │   ├── psychopg_helper.py  # SQL query builder
-│   │   └── type_inspector.py   # Type detection
+│   │   └── type_inspector.py   # Type detection (JSON & vector)
 │   └── exceptions.py       # Exception hierarchy
 ├── tests/
 │   ├── unit/               # Unit tests (mocked)
@@ -333,20 +382,22 @@ psycopg-toolkit/
 │   │   ├── test_json_exceptions.py
 │   │   ├── test_json_handler.py
 │   │   ├── test_transaction.py
-│   │   └── test_type_inspector.py
+│   │   └── test_type_inspector.py (includes vector tests)
+│   ├── integration/        # Integration tests (testcontainers)
+│   │   ├── test_database_container.py
+│   │   ├── test_jsonb_basic.py
+│   │   ├── test_jsonb_edge_cases.py
+│   │   ├── test_jsonb_queries.py
+│   │   ├── test_jsonb_transactions.py
+│   │   ├── test_array_fields.py
+│   │   ├── test_date_fields.py
+│   │   └── test_pgvector.py    # pgvector integration tests
 │   ├── performance/        # Performance benchmarks
 │   │   └── test_jsonb_performance.py
 │   ├── repositories/       # Test utilities
 │   │   └── jsonb_repositories.py
 │   ├── sql/               # Test database schema
-│   │   └── init_test_schema.sql
-│   ├── test_database_container.py  # Container tests
-│   ├── test_jsonb_basic.py        # JSONB CRUD tests
-│   ├── test_jsonb_edge_cases.py   # Edge cases
-│   ├── test_jsonb_queries.py      # Query tests
-│   ├── test_jsonb_transactions.py # Transaction tests
-│   ├── test_array_fields.py       # Array field tests
-│   ├── test_date_fields.py        # Date field tests
+│   │   └── init_test_schema.sql (includes pgvector)
 │   ├── conftest.py        # Test fixtures
 │   ├── schema_and_data.py # Test data management
 │   └── test_data.py       # Test data generation
@@ -386,6 +437,25 @@ See `BREAKING_CHANGES.md` for detailed migration guide.
 
 ## Recent Changes
 
+### pgvector Support (v0.3.0 - feature/pgvector branch)
+- **Native pgvector support** - Auto-detect `list[float]` fields for vector columns
+- Lazy async registration of pgvector adapter using `register_vector_async()`
+- `vector_fields` and `auto_detect_vector` parameters in BaseRepository
+- Automatic exclusion of vector fields from JSON processing
+- Graceful degradation if pgvector package not installed
+- Optional dependency: `pgvector>=0.4.1` in `vector` dependency group
+- **Tests**: 12 unit tests + 4 integration tests (all passing)
+- Integration tests use `pgvector/pgvector:pg17` testcontainer
+- Float32 precision handling (pgvector uses float32, Python uses float64)
+
+### Test Organization (v0.3.0)
+- Reorganized tests into proper subdirectories:
+  - `tests/unit/` - Unit tests (mocked, no database)
+  - `tests/integration/` - Integration tests (real PostgreSQL)
+  - `tests/performance/` - Performance benchmarks
+- Updated testcontainers to use `pgvector/pgvector:pg17`
+- All 227 tests passing with zero regressions
+
 ### JSONB Implementation (v0.1.7)
 - Added comprehensive JSONB support with three processing modes
 - Automatic detection of JSON fields from Pydantic models
@@ -395,7 +465,7 @@ See `BREAKING_CHANGES.md` for detailed migration guide.
 - Full test coverage including edge cases and performance benchmarks
 - Created comprehensive documentation in `docs/jsonb_support.md`
 
-### Array and Date Field Support (v0.2.1+)
+### Array and Date Field Support (v0.2.1)
 - Added `array_fields` parameter to preserve PostgreSQL arrays (TEXT[], INTEGER[])
 - Added `date_fields` parameter for automatic date/string conversion
   - **Important**: Include ALL date/timestamp fields (DATE, TIMESTAMP, TIMESTAMPTZ)

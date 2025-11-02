@@ -18,25 +18,16 @@ _db: Database | None = None
 
 @pytest.fixture(scope="session")
 def postgres_container() -> Generator[PostgresContainer, None, None]:
-    with PostgresContainer("postgres:17") as container:
-        # Initialize schema after container starts
-        import time
+    """Provides PostgreSQL with pgvector extension."""
+    from pathlib import Path
 
-        import psycopg
+    # Mount the entire sql directory to auto-run all .sql files
+    sql_dir = Path(__file__).parent / "sql"
 
-        # Wait for container to be ready
-        time.sleep(2)
+    postgres = PostgresContainer("pgvector/pgvector:pg17")
+    postgres.with_volume_mapping(str(sql_dir), "/docker-entrypoint-initdb.d")
 
-        # Create tables using sync connection
-        from pathlib import Path
-
-        conn_str = f"postgresql://{container.username}:{container.password}@{container.get_container_host_ip()}:{container.get_exposed_port(5432)}/{container.dbname}"
-        with psycopg.connect(conn_str) as conn, conn.cursor() as cur:
-            sql_path = Path(__file__).parent / "sql" / "init_test_schema.sql"
-            with sql_path.open() as f:
-                cur.execute(f.read())
-            conn.commit()
-
+    with postgres as container:
         yield container
 
 

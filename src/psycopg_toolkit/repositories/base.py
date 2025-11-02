@@ -74,6 +74,8 @@ class BaseRepository(Generic[T, K]):
         strict_json_processing: bool = False,
         date_fields: set[str] | None = None,
         array_fields: set[str] | None = None,
+        vector_fields: set[str] | None = None,
+        auto_detect_vector: bool = True,
     ):
         """
         Initialize the base repository.
@@ -95,6 +97,11 @@ class BaseRepository(Generic[T, K]):
             array_fields (Optional[Set[str]], optional): Set of field names that should be
                 treated as PostgreSQL arrays rather than JSONB. Only relevant when
                 auto_detect_json=False. Defaults to None.
+            vector_fields (Optional[Set[str]], optional): Explicit set of field names to treat
+                as pgvector columns. If provided, overrides auto-detection. Defaults to None.
+            auto_detect_vector (bool, optional): Whether to automatically detect vector fields
+                (list[float]) from Pydantic type hints. Ignored if vector_fields is provided.
+                Defaults to True.
 
         Note:
             The model_class should be a Pydantic model that matches the database schema.
@@ -111,28 +118,69 @@ class BaseRepository(Generic[T, K]):
         self.model_class = model_class
         self.primary_key = primary_key
 
+        # Vector field detection and configuration
+        if vector_fields is not None:
+            self._vector_fields = vector_fields
+            logger.debug(f"Using explicit vector fields for {table_name}: {vector_fields}")
+        elif auto_detect_vector:
+            self._vector_fields = TypeInspector.detect_vector_fields(model_class)
+            logger.debug(f"Auto-detected vector fields for {table_name}: {self._vector_fields}")
+        else:
+            self._vector_fields = set()
+            logger.debug(f"Vector field detection disabled for {table_name}")
+
         # JSON field detection and configuration
         if json_fields is not None:
             self._json_fields = json_fields
             logger.debug(f"Using explicit JSON fields for {table_name}: {json_fields}")
         elif auto_detect_json:
             detected_fields = TypeInspector.detect_json_fields(model_class)
-            # Exclude array fields from JSON fields
-            self._json_fields = detected_fields - (array_fields or set())
+            # Exclude array fields and vector fields from JSON fields
+            self._json_fields = detected_fields - (array_fields or set()) - self._vector_fields
             logger.debug(f"Auto-detected JSON fields for {table_name}: {detected_fields}")
-            logger.debug(f"JSON fields after excluding arrays: {self._json_fields}")
+            logger.debug(f"JSON fields after excluding arrays and vectors: {self._json_fields}")
         else:
             self._json_fields = set()
             logger.debug(f"JSON field processing disabled for {table_name}")
 
         # Cache for performance and configuration
         self._auto_detect_json = auto_detect_json
+        self._auto_detect_vector = auto_detect_vector
         self._strict_json_processing = strict_json_processing
         self._date_fields = date_fields or set()
         self._array_fields = array_fields or set()
 
         # Check if psycopg JSON adapters are enabled
         self._use_psycopg_adapters = self._check_psycopg_adapters()
+
+        # Store flag for lazy registration of pgvector adapter
+        self._vector_adapter_registered = False
+        self._needs_vector_adapter = bool(self._vector_fields)
+
+    async def _ensure_vector_adapter_registered(self):
+        """Ensure pgvector adapter is registered on the connection.
+
+        This is called lazily on first use to handle async registration properly.
+        Uses the async variant of register_vector for async connections.
+        """
+        if not self._needs_vector_adapter or self._vector_adapter_registered:
+            return
+
+        try:
+            from pgvector.psycopg import register_vector_async
+
+            await register_vector_async(self.db_connection)
+            self._vector_adapter_registered = True
+            logger.info(f"Registered pgvector adapter for {self.table_name} with fields: {self._vector_fields}")
+        except ImportError:
+            logger.warning(
+                f"pgvector package not installed but vector fields detected in {self.table_name}: {self._vector_fields}. "
+                "Vector fields will be returned as strings. Install pgvector with: pip install pgvector"
+            )
+            self._needs_vector_adapter = False  # Don't try again
+        except Exception as e:
+            logger.warning(f"Failed to register pgvector adapter for {self.table_name}: {e}")
+            self._needs_vector_adapter = False  # Don't try again
 
     def _check_psycopg_adapters(self) -> bool:
         """Check if psycopg JSON adapters are enabled on the connection.
@@ -152,6 +200,15 @@ class BaseRepository(Generic[T, K]):
             Set of field names that are configured for JSON serialization/deserialization.
         """
         return self._json_fields.copy()
+
+    @property
+    def vector_fields(self) -> set[str]:
+        """Get the set of field names that should be treated as pgvector.
+
+        Returns:
+            Set of field names that are configured as vector fields.
+        """
+        return self._vector_fields.copy()
 
     def _preprocess_data(self, data: dict[str, Any]) -> dict[str, Any]:
         """Preprocess data by handling JSON fields according to processing mode.
@@ -345,6 +402,9 @@ class BaseRepository(Generic[T, K]):
             If the model has JSON fields, they will be automatically serialized before
             insertion and deserialized when returning the created record.
         """
+        # Ensure pgvector adapter is registered if needed
+        await self._ensure_vector_adapter_registered()
+
         try:
             data = item.model_dump()
             # Preprocess data to serialize JSON fields
@@ -451,6 +511,9 @@ class BaseRepository(Generic[T, K]):
             If the model has JSON fields, they will be automatically deserialized
             from the database representation before creating the model instance.
         """
+        # Ensure pgvector adapter is registered if needed
+        await self._ensure_vector_adapter_registered()
+
         try:
             select_query = PsycopgHelper.build_select_query(self.table_name, where_clause={self.primary_key: record_id})
             async with self.db_connection.cursor(row_factory=dict_row) as cur:
@@ -493,6 +556,9 @@ class BaseRepository(Generic[T, K]):
             If the model has JSON fields, they will be automatically deserialized
             from the database representation before creating the model instances.
         """
+        # Ensure pgvector adapter is registered if needed
+        await self._ensure_vector_adapter_registered()
+
         try:
             async with self.db_connection.cursor(row_factory=dict_row) as cur:
                 query = SQL("SELECT * FROM {}").format(Identifier(self.table_name))
