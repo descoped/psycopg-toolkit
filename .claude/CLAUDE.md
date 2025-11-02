@@ -92,9 +92,9 @@ This is **psycopg-toolkit**, a robust PostgreSQL database toolkit for Python app
    - Excludes vector fields from JSON processing
 
 2. **BaseRepository** (`src/psycopg_toolkit/repositories/base.py`)
-   - Lazy async registration of pgvector adapter
-   - Per-connection adapter registration
-   - Graceful degradation if pgvector not installed
+   - PostgreSQL returns vectors as strings like `'[0.1,0.2,0.3]'`
+   - Automatically parses vector strings to `list[float]` using JSON parsing
+   - **No pgvector-python library required** - uses simple JSON deserialization
    - `vector_fields` and `auto_detect_vector` parameters
 
 ### JSONB Support Components
@@ -437,16 +437,17 @@ See `BREAKING_CHANGES.md` for detailed migration guide.
 
 ## Recent Changes
 
-### pgvector Support (v0.3.0 - feature/pgvector branch)
+### pgvector Support (v0.3.1)
 - **Native pgvector support** - Auto-detect `list[float]` fields for vector columns
-- Lazy async registration of pgvector adapter using `register_vector_async()`
+- **No external dependencies required** - Removed pgvector-python library
+- PostgreSQL returns vectors as strings like `'[0.1,0.2,0.3]'`
+- Automatically parses vector strings to `list[float]` using JSON parsing
 - `vector_fields` and `auto_detect_vector` parameters in BaseRepository
 - Automatic exclusion of vector fields from JSON processing
-- Graceful degradation if pgvector package not installed
-- Optional dependency: `pgvector>=0.4.1` in `vector` dependency group
-- **Tests**: 12 unit tests + 4 integration tests (all passing)
+- **Performance**: Negligible overhead (<0.1ms per vector for JSON parsing)
+- **Tests**: 12 unit tests + 4 integration tests (all passing, 227 total)
 - Integration tests use `pgvector/pgvector:pg17` testcontainer
-- Float32 precision handling (pgvector uses float32, Python uses float64)
+- Simpler implementation - no adapter registration, no numpy dependency
 
 ### Test Organization (v0.3.0)
 - Reorganized tests into proper subdirectories:

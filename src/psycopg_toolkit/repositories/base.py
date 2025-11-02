@@ -98,7 +98,9 @@ class BaseRepository(Generic[T, K]):
                 treated as PostgreSQL arrays rather than JSONB. Only relevant when
                 auto_detect_json=False. Defaults to None.
             vector_fields (Optional[Set[str]], optional): Explicit set of field names to treat
-                as pgvector columns. If provided, overrides auto-detection. Defaults to None.
+                as pgvector columns. Vector fields are returned as strings from PostgreSQL and
+                automatically parsed to list[float] using JSON parsing. If provided, overrides
+                auto-detection. Defaults to None.
             auto_detect_vector (bool, optional): Whether to automatically detect vector fields
                 (list[float]) from Pydantic type hints. Ignored if vector_fields is provided.
                 Defaults to True.
@@ -152,35 +154,6 @@ class BaseRepository(Generic[T, K]):
 
         # Check if psycopg JSON adapters are enabled
         self._use_psycopg_adapters = self._check_psycopg_adapters()
-
-        # Store flag for lazy registration of pgvector adapter
-        self._vector_adapter_registered = False
-        self._needs_vector_adapter = bool(self._vector_fields)
-
-    async def _ensure_vector_adapter_registered(self):
-        """Ensure pgvector adapter is registered on the connection.
-
-        This is called lazily on first use to handle async registration properly.
-        Uses the async variant of register_vector for async connections.
-        """
-        if not self._needs_vector_adapter or self._vector_adapter_registered:
-            return
-
-        try:
-            from pgvector.psycopg import register_vector_async
-
-            await register_vector_async(self.db_connection)
-            self._vector_adapter_registered = True
-            logger.info(f"Registered pgvector adapter for {self.table_name} with fields: {self._vector_fields}")
-        except ImportError:
-            logger.warning(
-                f"pgvector package not installed but vector fields detected in {self.table_name}: {self._vector_fields}. "
-                "Vector fields will be returned as strings. Install pgvector with: pip install pgvector"
-            )
-            self._needs_vector_adapter = False  # Don't try again
-        except Exception as e:
-            logger.warning(f"Failed to register pgvector adapter for {self.table_name}: {e}")
-            self._needs_vector_adapter = False  # Don't try again
 
     def _check_psycopg_adapters(self) -> bool:
         """Check if psycopg JSON adapters are enabled on the connection.
@@ -348,6 +321,29 @@ class BaseRepository(Generic[T, K]):
                         f"Converted date field '{field_name}' from {type(value).__name__} to ISO string for {self.table_name}"
                     )
 
+        # Parse vector fields from PostgreSQL string format to Python list[float]
+        # PostgreSQL returns vectors as strings like '[0.1,0.2,0.3]'
+        for field_name in self._vector_fields:
+            if field_name in processed_data and processed_data[field_name] is not None:
+                value = processed_data[field_name]
+                if isinstance(value, str):
+                    try:
+                        # Parse string to list[float] using json.loads()
+                        parsed_vector = JSONHandler.deserialize(value)
+                        if isinstance(parsed_vector, list):
+                            processed_data[field_name] = parsed_vector
+                            logger.debug(
+                                f"Parsed vector field '{field_name}' from string to list[float] for {self.table_name}"
+                            )
+                        else:
+                            logger.warning(
+                                f"Vector field '{field_name}' parsed to {type(parsed_vector).__name__} instead of list for {self.table_name}"
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to parse vector field '{field_name}' in {self.table_name}: {e}. Keeping as string."
+                        )
+
         # If no JSON fields should be processed, return the processed data
         if not json_fields:
             logger.debug(f"No JSON fields configured for {self.table_name}, skipping JSON postprocessing")
@@ -402,9 +398,6 @@ class BaseRepository(Generic[T, K]):
             If the model has JSON fields, they will be automatically serialized before
             insertion and deserialized when returning the created record.
         """
-        # Ensure pgvector adapter is registered if needed
-        await self._ensure_vector_adapter_registered()
-
         try:
             data = item.model_dump()
             # Preprocess data to serialize JSON fields
@@ -511,9 +504,6 @@ class BaseRepository(Generic[T, K]):
             If the model has JSON fields, they will be automatically deserialized
             from the database representation before creating the model instance.
         """
-        # Ensure pgvector adapter is registered if needed
-        await self._ensure_vector_adapter_registered()
-
         try:
             select_query = PsycopgHelper.build_select_query(self.table_name, where_clause={self.primary_key: record_id})
             async with self.db_connection.cursor(row_factory=dict_row) as cur:
@@ -556,9 +546,6 @@ class BaseRepository(Generic[T, K]):
             If the model has JSON fields, they will be automatically deserialized
             from the database representation before creating the model instances.
         """
-        # Ensure pgvector adapter is registered if needed
-        await self._ensure_vector_adapter_registered()
-
         try:
             async with self.db_connection.cursor(row_factory=dict_row) as cur:
                 query = SQL("SELECT * FROM {}").format(Identifier(self.table_name))
