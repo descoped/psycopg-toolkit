@@ -15,7 +15,7 @@ from .exceptions import (
     RepositoryError,
 )
 from .repositories.base import BaseRepository
-from .utils.json_handler import CustomJSONEncoder, JSONHandler
+from .utils.json_handler import CustomJSONEncoder, DecimalMode, JSONHandler
 from .utils.type_inspector import TypeInspector
 
 __all__ = [
@@ -27,6 +27,7 @@ __all__ = [
     "DatabaseNotAvailable",
     "DatabasePoolError",
     "DatabaseSettings",
+    "DecimalMode",
     "InvalidDataError",
     "JSONDeserializationError",
     # JSON/JSONB Support

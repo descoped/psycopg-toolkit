@@ -203,6 +203,28 @@ The `date_fields` parameter:
 - Works with `DATE`, `TIMESTAMP`, and `TIMESTAMPTZ` PostgreSQL types
 - Only converts when Pydantic model expects string types
 
+### Decimal Values in JSON Fields
+
+JSON numbers decode to `float`, so by default a `Decimal` inside a JSON field is written as a float
+and can lose digits (`Decimal("123.456789012345678901")` reads back as `123.45678901234568`). Pass
+`decimal_as="str"` to keep every digit: the value is stored as a JSON string and reads back as
+`str`, which you convert with `Decimal(value)`.
+
+```python
+class OrderRepository(BaseRepository[Order, int]):
+    def __init__(self, db_connection):
+        super().__init__(
+            db_connection=db_connection,
+            table_name="orders",
+            model_class=Order,
+            decimal_as="str",  # default "float"
+        )
+```
+
+The same option exists on `JSONHandler.serialize(data, decimal_as="str")` and
+`CustomJSONEncoder(decimal_as="str")`. It applies to the toolkit's own JSON serialization, not to
+values wrapped with psycopg's `Json()` when `auto_detect_json=False`.
+
 ## Configuration Approaches
 
 ### Approach 1: psycopg JSON Adapters (Recommended)
@@ -234,9 +256,16 @@ class UserRepository(BaseRepository[UserProfile, int]):
 ```
 
 **How it works:**
-- `enable_json_adapters=True` configures psycopg JSON adapters on database connections
+- `enable_json_adapters=True` resets each connection to the standard-library JSON loads/dumps (see the note below)
 - `auto_detect_json=False` tells the repository to use psycopg adapter mode
 - JSON fields are automatically wrapped with psycopg's `Json()` adapter
+
+> **What `enable_json_adapters` actually controls.** psycopg decodes `json`/`jsonb` columns to
+> Python objects on its own, whatever this setting is. With `True` (default), every connection the
+> toolkit hands out (`Database.connection()`, `Database.transaction()`, `TransactionManager`) is reset
+> to the standard library's `json.loads`/`json.dumps`, overriding any loader you registered globally
+> with `psycopg.types.json.set_json_loads`. With `False`, the toolkit leaves the connection's loaders
+> alone, so a global custom loader stays in effect. It does not turn JSON decoding off.
 
 **Benefits:**
 - ✅ Optimal performance - no double processing
@@ -302,9 +331,12 @@ settings = DatabaseSettings(
     dbname="mydb",
     user="user",
     password="password",
-    enable_json_adapters=False  # Disable psycopg JSON adapters
+    enable_json_adapters=False  # Keep the connection's own (e.g. globally registered) JSON loaders
 )
 ```
+
+This does not stop psycopg from decoding `jsonb` to Python objects; see the note on
+`enable_json_adapters` above.
 
 #### Method 3: Complete Disable (Recommended for Full Control)
 
@@ -945,8 +977,10 @@ class ClientRepository(BaseRepository[Client, UUID]):
 
 1. **Understanding Processing Modes**:
 ```python
-# DatabaseSettings.enable_json_adapters configures connection-level JSON adapters
-settings = DatabaseSettings(enable_json_adapters=True)  # Enables psycopg JSON adapters on connections
+# DatabaseSettings.enable_json_adapters only chooses which JSON loads/dumps a connection uses:
+# True resets it to the standard library's, False keeps any globally registered loader.
+# psycopg decodes jsonb to Python objects either way.
+settings = DatabaseSettings(enable_json_adapters=True)
 
 # Repository processing mode is determined by auto_detect_json parameter:
 # - auto_detect_json=True: Always uses custom JSON processing

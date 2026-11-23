@@ -313,6 +313,7 @@ assert isinstance(created.embedding, list)  # Returns as list[float], not string
 - `strict_json_processing` (default: False) - Raise exceptions on JSON errors
 - `array_fields` - Preserve PostgreSQL arrays (TEXT[], INTEGER[]) instead of JSONB
 - `date_fields` - Automatically convert PostgreSQL date/timestamp to/from strings
+- `decimal_as` (default: "float") - `"str"` writes Decimal in JSON fields as a lossless string
 
 ## Performance Considerations
 
