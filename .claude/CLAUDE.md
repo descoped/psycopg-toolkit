@@ -346,7 +346,8 @@ assert isinstance(created.embedding, list)  # Returns as list[float], not string
   - `.github/workflows/build-test.yml`: Main CI/CD (excludes performance tests)
   - `.github/workflows/benchmark.yml`: Performance testing (manual/PR trigger)
   - `.github/workflows/release.yml`: PyPI release automation
-- Tests against Python 3.11, 3.12, and 3.13
+- Tests against Python 3.11, 3.12, 3.13, 3.14 and 3.15
+- Dev/test environment is kept lean: unused deps are removed and `charset-normalizer` is excluded via `[tool.uv] exclude-dependencies`
 - PostgreSQL 18 in CI environment
 - Coverage reporting with pytest-cov
 - Renovate for dependency updates

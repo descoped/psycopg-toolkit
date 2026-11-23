@@ -20,8 +20,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.11', '3.12', '3.13']
-    
+        python-version: ['3.11', '3.12', '3.13', '3.14', '3.15']
+    env:
+      # Make uv use the interpreter under test instead of picking its own
+      UV_PYTHON: ${{ matrix.python-version }}
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v7
@@ -40,7 +43,8 @@ jobs:
     
     - name: Run linting
       run: |
-        uv run ruff check src tests
+        uv run ruff check .
+        uv run ruff format --check .
     
     - name: Run all tests (except performance) with coverage
       run: |
