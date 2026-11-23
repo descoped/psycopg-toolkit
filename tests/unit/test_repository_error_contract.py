@@ -170,3 +170,39 @@ class TestLogging:
         with pytest.raises(OperationError):
             await make_repo(execute_error=DB_DOWN).get_all()
         assert len(error_records(caplog)) == 1
+
+
+class Vec(BaseModel):
+    id: int
+    embedding: list[float]
+    tags: list[str]
+
+
+def debug_messages(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG]
+
+
+class TestDebugMessages:
+    """Rendered text of the lazily formatted debug messages on configuration paths."""
+
+    def test_explicit_vector_fields(self, caplog: pytest.LogCaptureFixture) -> None:
+        caplog.set_level(logging.DEBUG, logger="psycopg_toolkit")
+        BaseRepository(MagicMock(), "vecs", Vec, vector_fields={"embedding"})
+        assert "Using explicit vector fields for vecs: {'embedding'}" in debug_messages(caplog)
+
+    def test_vector_detection_disabled(self, caplog: pytest.LogCaptureFixture) -> None:
+        caplog.set_level(logging.DEBUG, logger="psycopg_toolkit")
+        BaseRepository(MagicMock(), "vecs", Vec, auto_detect_vector=False)
+        assert "Vector field detection disabled for vecs" in debug_messages(caplog)
+
+    def test_array_field_preserved(self, caplog: pytest.LogCaptureFixture) -> None:
+        caplog.set_level(logging.DEBUG, logger="psycopg_toolkit")
+        repo = BaseRepository(MagicMock(), "vecs", Vec, auto_detect_json=False, array_fields={"tags"})
+        assert repo._preprocess_data({"tags": ["a"]}) == {"tags": ["a"]}
+        assert "Preserving array field 'tags' for PostgreSQL array handling" in debug_messages(caplog)
+
+    def test_non_container_json_value(self, caplog: pytest.LogCaptureFixture) -> None:
+        caplog.set_level(logging.DEBUG, logger="psycopg_toolkit")
+        repo = BaseRepository(MagicMock(), "docs", Doc, json_fields={"meta"})
+        assert repo._preprocess_data({"meta": 5}) == {"meta": "5"}
+        assert "Serialized non-standard JSON field 'meta' for docs" in debug_messages(caplog)
