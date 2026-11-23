@@ -17,7 +17,9 @@ class CustomJSONEncoder(json.JSONEncoder):
     that are commonly used in applications but not natively JSON serializable.
     """
 
-    def default(self, obj: Any) -> Any:
+    # The parameter keeps its public name `obj` (the base class calls it `o`); renaming it would
+    # break callers that pass it by keyword.
+    def default(self, obj: Any) -> Any:  # pyright: ignore[reportIncompatibleMethodOverride]
         """Convert objects to JSON-serializable format.
 
         Args:

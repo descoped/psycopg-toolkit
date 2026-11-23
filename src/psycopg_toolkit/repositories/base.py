@@ -6,6 +6,7 @@ from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 from psycopg.sql import SQL, Identifier
 from psycopg.types.json import Json
+from pydantic import BaseModel
 
 from ..exceptions import (
     JSONDeserializationError,
@@ -19,7 +20,7 @@ from ..utils.json_handler import JSONHandler
 from ..utils.type_inspector import TypeInspector
 
 # Generic type variables for model and primary key
-T = TypeVar("T")
+T = TypeVar("T", bound=BaseModel)
 K = TypeVar("K")
 
 logger = logging.getLogger(__name__)
@@ -481,7 +482,7 @@ class BaseRepository(Generic[T, K]):
             logger.error(f"Error in create_bulk: {e}")
             raise OperationError(f"Failed to create records in bulk: {e!s}") from e
 
-    async def get_by_id(self, record_id: K) -> T | None:
+    async def get_by_id(self, record_id: K) -> T:
         """
         Retrieve a record by its ID.
 
@@ -489,10 +490,11 @@ class BaseRepository(Generic[T, K]):
             record_id (K): The unique identifier of the record.
 
         Returns:
-            Optional[T]: The found model instance or None if not found.
+            T: The found model instance.
 
         Raises:
-            HTTPException: If the database query fails.
+            RecordNotFoundError: If no record has this ID.
+            OperationError: If the database query fails.
             JSONDeserializationError: If JSON deserialization fails and strict_json_processing is True.
 
         Example:

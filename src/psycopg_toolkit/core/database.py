@@ -1,8 +1,9 @@
 import asyncio
+import json as stdlib_json
 import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .transaction import TransactionManager
@@ -69,8 +70,8 @@ class Database:
         if self._settings.enable_json_adapters:
             logger.debug("Configuring JSON adapters for connection")
             # Set up JSON adapters to handle JSONB columns automatically
-            json.set_json_loads(loads=json.json.loads, context=connection)
-            json.set_json_dumps(dumps=json.json.dumps, context=connection)
+            json.set_json_loads(loads=stdlib_json.loads, context=connection)
+            json.set_json_dumps(dumps=stdlib_json.dumps, context=connection)
             logger.debug("JSON adapters configured successfully")
         else:
             logger.debug("JSON adapters disabled in settings")
@@ -124,13 +125,17 @@ class Database:
             await self.ping_postgres()
 
             logger.info("Initializing connection pool")
-            pool = AsyncConnectionPool(
-                conninfo=self._settings.connection_string,
-                min_size=self._settings.min_pool_size,
-                max_size=self._settings.max_pool_size,
-                timeout=self._settings.pool_timeout,
-                configure=self._configure_new_connection,
-                open=False,
+            # cast: psycopg_pool cannot infer the connection type parameter from these arguments
+            pool = cast(
+                "AsyncConnectionPool[AsyncConnection]",
+                AsyncConnectionPool(
+                    conninfo=self._settings.connection_string,
+                    min_size=self._settings.min_pool_size,
+                    max_size=self._settings.max_pool_size,
+                    timeout=self._settings.pool_timeout,
+                    configure=self._configure_new_connection,
+                    open=False,
+                ),
             )
 
             try:

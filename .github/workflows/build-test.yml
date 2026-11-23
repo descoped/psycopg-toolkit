@@ -45,7 +45,14 @@ jobs:
       run: |
         uv run ruff check .
         uv run ruff format --check .
-    
+
+    - name: Type check (pyright)
+      # pythonVersion in [tool.pyright] pins the check to the 3.11 floor, so one run suffices.
+      # tests/typing holds assert_type checks for the public API.
+      if: matrix.python-version == '3.13'
+      run: |
+        npx --yes pyright@1.1.414 src tests/typing
+
     - name: Run all tests (except performance) with coverage
       run: |
         # The default pytest configuration excludes performance tests
