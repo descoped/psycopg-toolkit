@@ -143,6 +143,19 @@ precision = 2
 show_missing = true
 skip_covered = false
 
+[tool.pyright]
+# Used by the pyright language server (editor / Claude Code LSP) and the `pyright` CLI.
+# uv creates the project environment as `.venv` next to this file (`uv sync`, or on first
+# `uv run`). Pyright does not discover it on its own: without venvPath/venv it falls back to
+# whatever `python` is on PATH. The path is relative and fixed by uv, so it is the same for
+# every checkout and safe to commit.
+venvPath = "."
+venv = ".venv"
+include = ["src", "tests", "examples"]
+# Check against the lowest supported Python so newer-only syntax is caught.
+pythonVersion = "3.11"
+typeCheckingMode = "standard"
+
 [tool.ruff]
 target-version = "py311"
 line-length = 120
