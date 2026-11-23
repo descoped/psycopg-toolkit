@@ -18,7 +18,7 @@ from ..exceptions import (
     RecordNotFoundError,
 )
 from ..utils import PsycopgHelper
-from ..utils.json_handler import JSONHandler
+from ..utils.json_handler import DecimalMode, JSONHandler, check_decimal_mode
 from ..utils.type_inspector import TypeInspector
 
 # Generic type variables for model and primary key
@@ -79,6 +79,7 @@ class BaseRepository(Generic[T, K]):
         array_fields: set[str] | None = None,
         vector_fields: set[str] | None = None,
         auto_detect_vector: bool = True,
+        decimal_as: DecimalMode = "float",
     ):
         """
         Initialize the base repository.
@@ -107,6 +108,11 @@ class BaseRepository(Generic[T, K]):
             auto_detect_vector (bool, optional): Whether to automatically detect vector fields
                 (list[float]) from Pydantic type hints. Ignored if vector_fields is provided.
                 Defaults to True.
+            decimal_as (DecimalMode, optional): How Decimal values inside JSON fields are
+                written. "float" (default) may lose digits; "str" keeps every digit by writing
+                the value as a JSON string, which reads back as ``str`` (convert with
+                ``Decimal(value)``). Applies to the toolkit's own JSON serialization, not to
+                values wrapped with ``Json()`` when ``auto_detect_json=False``.
 
         Note:
             The model_class should be a Pydantic model that matches the database schema.
@@ -120,6 +126,7 @@ class BaseRepository(Generic[T, K]):
         """
         self.db_connection = db_connection
         self.table_name = table_name
+        self._decimal_as: DecimalMode = check_decimal_mode(decimal_as)
         self.model_class = model_class
         self.primary_key = primary_key
 
@@ -154,19 +161,6 @@ class BaseRepository(Generic[T, K]):
         self._strict_json_processing = strict_json_processing
         self._date_fields = date_fields or set()
         self._array_fields = array_fields or set()
-
-        # Check if psycopg JSON adapters are enabled
-        self._use_psycopg_adapters = self._check_psycopg_adapters()
-
-    def _check_psycopg_adapters(self) -> bool:
-        """Check if psycopg JSON adapters are enabled on the connection.
-
-        Returns:
-            bool: True if psycopg JSON adapters are enabled, False otherwise.
-        """
-        # Never use psycopg adapters - this causes issues with arrays
-        # When auto_detect_json=False, users expect NO JSON processing
-        return False
 
     @property
     def json_fields(self) -> set[str]:
@@ -250,7 +244,7 @@ class BaseRepository(Generic[T, K]):
                 if isinstance(value, dict | list):
                     try:
                         # Serialize to JSON string for manual processing
-                        serialized = JSONHandler.serialize(value)
+                        serialized = JSONHandler.serialize(value, decimal_as=self._decimal_as)
                         processed_data[field_name] = serialized
                         logger.debug("Serialized JSON field '%s' for %s", field_name, self.table_name)
                     except Exception as e:
@@ -263,7 +257,7 @@ class BaseRepository(Generic[T, K]):
                 elif not isinstance(value, str):
                     # Value is not dict/list/str, try to serialize it anyway
                     try:
-                        serialized = JSONHandler.serialize(value)
+                        serialized = JSONHandler.serialize(value, decimal_as=self._decimal_as)
                         processed_data[field_name] = serialized
                         logger.debug("Serialized non-standard JSON field '%s' for %s", field_name, self.table_name)
                     except Exception as e:

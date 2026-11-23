@@ -53,19 +53,17 @@ class Database:
         self._pool_lock = asyncio.Lock()
 
     def _configure_json_adapters(self, connection: AsyncConnection) -> None:
-        """Configure psycopg JSON adapters for JSONB support.
+        """Reset the connection's JSON loads/dumps to the standard library's, if enabled.
 
-        This method sets up automatic JSON/JSONB handling using psycopg's built-in
-        JSON adapters, which provide seamless conversion between Python objects
-        and PostgreSQL JSON/JSONB data types.
+        psycopg decodes json/jsonb to Python objects by default; this does not change that. With
+        ``enable_json_adapters`` set, it pins ``json.loads``/``json.dumps`` on this connection, which
+        overrides any loader registered globally with ``psycopg.types.json.set_json_loads``. With it
+        unset, the connection keeps whatever loaders are in effect.
+
+        Called on every checkout by ``connection()``, ``transaction()`` and the TransactionManager.
 
         Args:
             connection: The database connection to configure
-
-        Note:
-            This is called automatically when enable_json_adapters is True in settings.
-            The adapters handle serialization/deserialization transparently at the
-            driver level, which can be more efficient than manual processing.
         """
         if self._settings.enable_json_adapters:
             logger.debug("Configuring JSON adapters for connection")

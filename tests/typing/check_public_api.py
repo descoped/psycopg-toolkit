@@ -14,7 +14,7 @@ from psycopg import AsyncConnection
 from psycopg.sql import Composed
 from pydantic import BaseModel
 
-from psycopg_toolkit import BaseRepository
+from psycopg_toolkit import BaseRepository, DecimalMode, JSONHandler
 from psycopg_toolkit.utils import PsycopgHelper
 
 
@@ -44,6 +44,15 @@ async def repository_types(conn: AsyncConnection, user_id: UUID, user: User) -> 
 
     # The model type must be a Pydantic model
     BaseRepository[NotAModel, int]  # pyright: ignore[reportInvalidTypeArguments]
+
+    # decimal_as only accepts the DecimalMode literals
+    UserRepository(conn, "users", User, decimal_as="str")
+    UserRepository(conn, "users", User, decimal_as="int")  # pyright: ignore[reportArgumentType]
+
+
+def json_handler_types(mode: DecimalMode) -> None:
+    assert_type(JSONHandler.serialize({}, decimal_as=mode), str)
+    JSONHandler.serialize({}, decimal_as="decimal")  # pyright: ignore[reportArgumentType]
 
 
 def helper_types(data: dict[str, object]) -> None:

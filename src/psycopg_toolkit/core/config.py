@@ -22,7 +22,10 @@ class DatabaseSettings:
         pool_timeout (int): Maximum time in seconds to wait for a connection (default: 30)
         connection_timeout (float): Connection establishment timeout in seconds (default: 5.0)
         statement_timeout (Optional[float]): SQL statement execution timeout in seconds (default: None)
-        enable_json_adapters (bool): Whether to enable psycopg JSON adapters for JSONB support (default: True)
+        enable_json_adapters (bool): Reset every connection the toolkit hands out to the standard
+            library's JSON loads/dumps, overriding loaders registered globally with
+            ``psycopg.types.json.set_json_loads`` (default: True). With False the connection keeps
+            its own loaders. psycopg decodes json/jsonb to Python objects either way.
     """
 
     host: str
