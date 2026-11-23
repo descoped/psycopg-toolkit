@@ -463,7 +463,7 @@ async def demonstrate_complex_operations(db: Database):
         except DatabaseConnectionError as e:
             # TransactionManager rolls back and wraps any error raised in the block;
             # the original exception is chained as __cause__
-            print(f"  Transaction rolled back: {e.__cause__}")
+            print(f"  Transaction rolled back: {e.__cause__ or e}")
 
         # 4. Complex queries
         print("\n4. Demonstrating complex JSONB queries...")

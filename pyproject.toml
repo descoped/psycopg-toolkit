@@ -116,7 +116,7 @@ addopts = [
 ]
 filterwarnings = [
     # charset-normalizer is excluded on purpose (see [tool.uv]); requests warns once on import
-    "ignore:Unable to find acceptable character detection dependency:Warning",
+    "ignore:Unable to find acceptable character detection dependency:Warning:requests",
 ]
 
 [tool.coverage.run]

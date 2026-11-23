@@ -4,7 +4,7 @@ import types
 from typing import Any, Union
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, RootModel
 
 from psycopg_toolkit.utils.type_inspector import TypeInspector
 
@@ -510,14 +510,38 @@ class TestNestedModelAndBareContainerDetection:
 
         assert TypeInspector.detect_json_fields(Customer) == {"address", "billing_address", "previous_addresses"}
 
-    def test_bare_dict_and_list_are_json(self):
+    def test_bare_dict_is_json(self):
         class Loose(BaseModel):
             name: str
             data: dict
-            items: list
             maybe: dict | None = None
 
-        assert TypeInspector.detect_json_fields(Loose) == {"data", "items", "maybe"}
+        assert TypeInspector.detect_json_fields(Loose) == {"data", "maybe"}
+
+    def test_bare_list_is_not_json(self):
+        """A bare `list` keeps passing through so psycopg adapts it to a PostgreSQL array."""
+
+        class Tagged(BaseModel):
+            labels: list
+            maybe_labels: list | None = None
+
+        assert TypeInspector.detect_json_fields(Tagged) == set()
+
+    def test_root_models_are_not_json(self):
+        """RootModel dumps to its root value (str, list, ...), not a dict."""
+
+        class Email(RootModel[str]):
+            pass
+
+        class Labels(RootModel[list[str]]):
+            pass
+
+        class User(BaseModel):
+            email: Email
+            labels: Labels
+            backup_email: Email | None = None
+
+        assert TypeInspector.detect_json_fields(User) == set()
 
     def test_bare_list_is_not_a_vector(self):
         class Loose(BaseModel):
