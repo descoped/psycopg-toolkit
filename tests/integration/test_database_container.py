@@ -1,7 +1,7 @@
 import pytest
 from psycopg import AsyncConnection, AsyncTransaction
 from psycopg_pool import AsyncConnectionPool
-from testcontainers.postgres import PostgresContainer
+from testcontainers.community.postgres import PostgresContainer
 
 from psycopg_toolkit import DatabaseSettings, TransactionManager
 

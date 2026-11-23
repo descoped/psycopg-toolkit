@@ -17,7 +17,7 @@ from datetime import date, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
-from testcontainers.postgres import PostgresContainer
+from testcontainers.community.postgres import PostgresContainer
 
 from psycopg_toolkit import BaseRepository, Database, DatabaseSettings
 
@@ -249,7 +249,7 @@ async def demo_date_fields(db: Database):
 async def main():
     """Run the examples."""
     # Use testcontainers for a temporary PostgreSQL instance
-    with PostgresContainer("postgres:17") as postgres:
+    with PostgresContainer("postgres:18") as postgres:
         container_db_url = postgres.get_connection_url()
         print(f"Container started: {container_db_url}")
 

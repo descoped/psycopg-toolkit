@@ -9,7 +9,7 @@ from psycopg import AsyncConnection, AsyncTransaction
 from psycopg_pool import AsyncConnectionPool
 from pydantic import BaseModel, ConfigDict
 from schema_and_data import TestUserData, UserSchemaManager
-from testcontainers.postgres import PostgresContainer
+from testcontainers.community.postgres import PostgresContainer
 
 from psycopg_toolkit import Database, DatabaseSettings, TransactionManager
 
@@ -24,7 +24,7 @@ def postgres_container() -> Generator[PostgresContainer, None, None]:
     # Mount the entire sql directory to auto-run all .sql files
     sql_dir = Path(__file__).parent / "sql"
 
-    postgres = PostgresContainer("pgvector/pgvector:pg17")
+    postgres = PostgresContainer("pgvector/pgvector:pg18")
     postgres.with_volume_mapping(str(sql_dir), "/docker-entrypoint-initdb.d")
 
     with postgres as container:

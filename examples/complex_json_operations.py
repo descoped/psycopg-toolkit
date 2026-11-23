@@ -19,7 +19,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
-from testcontainers.postgres import PostgresContainer
+from testcontainers.community.postgres import PostgresContainer
 
 from psycopg_toolkit import (
     BaseRepository,
@@ -573,7 +573,7 @@ async def main():
     print("=" * 50)
 
     # Initialize postgres container
-    with PostgresContainer("postgres:17") as container:
+    with PostgresContainer("postgres:18") as container:
         # Setup database
         db = await setup_database(container)
 

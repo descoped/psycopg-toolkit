@@ -26,22 +26,22 @@ classifiers = [
     "Framework :: Pydantic :: 2",
 ]
 dependencies = [
-    "psycopg>=3.2.3",
-    "psycopg-pool>=3.2.4",
-    "tenacity>=9.0.0",
-    "pydantic>=2.10.5",
+    "psycopg>=3.3.9",
+    "psycopg-pool>=3.3.3",
+    "tenacity>=9.2.1",
+    "pydantic>=2.14.4",
 ]
 
 [dependency-groups]
 test = [
-    "pytest>=8.3.0",
-    "pytest-asyncio>=0.25.2",
-    "pytest-cov>=6.0.0",
-    "testcontainers[postgres]>=4.12.0",
-    "psutil>=6.1.0", # For performance benchmarks
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.5.0",
+    "pytest-cov>=7.1.0",
+    "testcontainers[postgres]>=4.15.0",
+    "psutil>=7.2.2", # For performance benchmarks
 ]
 dev = [
-    "ruff>=0.8.0",
+    "ruff>=0.17.6",
 ]
 
 [build-system]
@@ -152,7 +152,7 @@ select = [
     "RUF", # Ruff-specific rules
     "C90", # mccabe complexity
     "PTH", # flake8-use-pathlib
-    "TCH", # flake8-type-checking
+    "TC",  # flake8-type-checking (formerly TCH)
 ]
 ignore =[
     "E501",   # Line too long (handled by formatter)
@@ -189,6 +189,9 @@ keep-runtime-typing = true  # For Pydantic
 ignore-names = ["model_*"]  # For Pydantic models
 
 [tool.ruff.format]
+# ruff 0.16+ formats Python code blocks in Markdown by default; our docs contain
+# illustrative fragments, not runnable modules, so keep the formatter on .py files.
+exclude = ["*.md"]
 quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
