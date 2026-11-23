@@ -2,14 +2,14 @@
 
 import asyncio
 
-from testcontainers.postgres import PostgresContainer
+from testcontainers.community.postgres import PostgresContainer
 
 from psycopg_toolkit import Database, DatabaseSettings
 
 
 async def main():
     # Initialize postgres container
-    with PostgresContainer("postgres:17") as container:
+    with PostgresContainer("postgres:18") as container:
         settings = DatabaseSettings(
             host=container.get_container_host_ip(),
             port=container.get_exposed_port(5432),

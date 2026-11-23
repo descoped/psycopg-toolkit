@@ -15,7 +15,7 @@ from decimal import Decimal
 from typing import Any
 
 from pydantic import BaseModel, Field
-from testcontainers.postgres import PostgresContainer
+from testcontainers.community.postgres import PostgresContainer
 
 from psycopg_toolkit import BaseRepository, Database, DatabaseSettings
 
@@ -344,7 +344,7 @@ async def main():
     print("🚀 Practical JSONB Usage - psycopg-toolkit")
     print("Demonstrating JSONB with psycopg JSON adapters (recommended approach)")
 
-    with PostgresContainer("postgres:17") as container:
+    with PostgresContainer("postgres:18") as container:
         settings = DatabaseSettings(
             host=container.get_container_host_ip(),
             port=container.get_exposed_port(5432),

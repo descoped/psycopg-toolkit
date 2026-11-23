@@ -19,7 +19,44 @@
   "baseBranchPatterns": [
     "master"
   ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Track PostgreSQL container images used via testcontainers in tests, examples and docs",
+      "managerFilePatterns": [
+        "/^tests/.+\\.py$/",
+        "/^examples/.+\\.py$/",
+        "/^docs/.+\\.md$/"
+      ],
+      "matchStrings": [
+        "PostgresContainer\\(\"(?<depName>pgvector/pgvector):(?<currentValue>pg\\d+)\"\\)",
+        "PostgresContainer\\(\"(?<depName>postgres):(?<currentValue>\\d+)\"\\)"
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ],
   "packageRules": [
+    {
+      "description": "Pin PostgreSQL to major 18 - do not upgrade to PostgreSQL 19+",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "postgres"
+      ],
+      "allowedVersions": "<19"
+    },
+    {
+      "description": "Pin pgvector image to the pg18 tag - do not upgrade to pg19+",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "pgvector/pgvector"
+      ],
+      "versioning": "regex:^pg(?<major>\\d+)$",
+      "allowedVersions": "/^pg1[0-8]$/"
+    },
     {
       "description": "Auto-merge minor and patch updates for all dependencies",
       "matchUpdateTypes": [

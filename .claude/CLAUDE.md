@@ -37,7 +37,7 @@ This is **psycopg-toolkit**, a robust PostgreSQL database toolkit for Python app
 
 ### Testing
 - Tests use pytest with asyncio support
-- Integration tests use testcontainers with pgvector/pgvector:pg17
+- Integration tests use testcontainers with pgvector/pgvector:pg18
 - Test categories are marked with pytest markers:
   - `@pytest.mark.asyncio` - Async tests (auto-detected)
   - `@pytest.mark.performance` - Performance benchmarks (excluded by default)
@@ -347,7 +347,7 @@ assert isinstance(created.embedding, list)  # Returns as list[float], not string
   - `.github/workflows/benchmark.yml`: Performance testing (manual/PR trigger)
   - `.github/workflows/release.yml`: PyPI release automation
 - Tests against Python 3.11, 3.12, and 3.13
-- PostgreSQL 17 in CI environment
+- PostgreSQL 18 in CI environment
 - Coverage reporting with pytest-cov
 - Renovate for dependency updates
 - Linting with ruff

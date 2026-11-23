@@ -189,7 +189,7 @@ class TestTypeInspectorFieldDetection:
             name: str
             flexible: str | dict[str, Any]
             mixed: int | list[str] | dict[str, str]
-            optional_union: None | dict[str, Any] | list[str]
+            optional_union: None | dict[str, Any] | list[str]  # noqa: RUF036 - intentionally tests None-first union
 
         json_fields = TypeInspector.detect_json_fields(TestModel)
         assert json_fields == {"flexible", "mixed", "optional_union"}
