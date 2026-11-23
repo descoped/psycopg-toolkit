@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Any
 
+from psycopg.conninfo import make_conninfo
+
 
 @dataclass
 class DatabaseSettings:
@@ -47,16 +49,25 @@ class DatabaseSettings:
     def get_connection_string(self, timeout: float | None = None) -> str:
         """Generate a PostgreSQL connection string with optional timeout override.
 
+        Values are quoted by libpq rules where needed (spaces, quotes, backslashes), so any
+        password or name is passed through intact.
+
         Args:
             timeout (Optional[float]): Optional connection timeout override in seconds
 
         Returns:
             str: Formatted connection string for psycopg
         """
-        conn_str = f"host={self.host} port={self.port} dbname={self.dbname} user={self.user} password={self.password}"
+        params: dict[str, Any] = {
+            "host": self.host,
+            "port": self.port,
+            "dbname": self.dbname,
+            "user": self.user,
+            "password": self.password,
+        }
         if timeout:
-            conn_str += f" connect_timeout={int(timeout)}"
-        return conn_str
+            params["connect_timeout"] = int(timeout)
+        return make_conninfo(**params)
 
     def to_dict(self, connection_only: bool = True) -> dict[str, Any]:
         """Convert settings to a dictionary.

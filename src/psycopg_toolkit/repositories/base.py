@@ -676,8 +676,11 @@ class BaseRepository(Generic[T, K]):
             ```
         """
         try:
+            query = SQL("SELECT 1 FROM {} WHERE {} = %s").format(
+                Identifier(self.table_name), Identifier(self.primary_key)
+            )
             async with self.db_connection.cursor() as cur:
-                await cur.execute(f"SELECT 1 FROM {self.table_name} WHERE {self.primary_key} = %s", [record_id])
+                await cur.execute(query, [record_id])
                 return bool(await cur.fetchone())
         except Exception as e:
             logger.error(f"Error in exists: {e}")
