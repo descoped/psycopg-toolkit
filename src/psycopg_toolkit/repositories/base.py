@@ -1,4 +1,6 @@
 import logging
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from datetime import date, datetime
 from typing import Any, Generic, TypeVar
 
@@ -124,27 +126,27 @@ class BaseRepository(Generic[T, K]):
         # Vector field detection and configuration
         if vector_fields is not None:
             self._vector_fields = vector_fields
-            logger.debug(f"Using explicit vector fields for {table_name}: {vector_fields}")
+            logger.debug("Using explicit vector fields for %s: %s", table_name, vector_fields)
         elif auto_detect_vector:
             self._vector_fields = TypeInspector.detect_vector_fields(model_class)
-            logger.debug(f"Auto-detected vector fields for {table_name}: {self._vector_fields}")
+            logger.debug("Auto-detected vector fields for %s: %s", table_name, self._vector_fields)
         else:
             self._vector_fields = set()
-            logger.debug(f"Vector field detection disabled for {table_name}")
+            logger.debug("Vector field detection disabled for %s", table_name)
 
         # JSON field detection and configuration
         if json_fields is not None:
             self._json_fields = json_fields
-            logger.debug(f"Using explicit JSON fields for {table_name}: {json_fields}")
+            logger.debug("Using explicit JSON fields for %s: %s", table_name, json_fields)
         elif auto_detect_json:
             detected_fields = TypeInspector.detect_json_fields(model_class)
             # Exclude array fields and vector fields from JSON fields
             self._json_fields = detected_fields - (array_fields or set()) - self._vector_fields
-            logger.debug(f"Auto-detected JSON fields for {table_name}: {detected_fields}")
-            logger.debug(f"JSON fields after excluding arrays and vectors: {self._json_fields}")
+            logger.debug("Auto-detected JSON fields for %s: %s", table_name, detected_fields)
+            logger.debug("JSON fields after excluding arrays and vectors: %s", self._json_fields)
         else:
             self._json_fields = set()
-            logger.debug(f"JSON field processing disabled for {table_name}")
+            logger.debug("JSON field processing disabled for %s", table_name)
 
         # Cache for performance and configuration
         self._auto_detect_json = auto_detect_json
@@ -234,11 +236,11 @@ class BaseRepository(Generic[T, K]):
                     if value is not None and isinstance(value, dict | list):
                         # Skip array fields - they should remain as PostgreSQL arrays
                         if field_name in self._array_fields:
-                            logger.debug(f"Preserving array field '{field_name}' for PostgreSQL array handling")
+                            logger.debug("Preserving array field '%s' for PostgreSQL array handling", field_name)
                             continue
                         # Wrap other dict/list fields with Json()
                         processed_data[field_name] = Json(value)
-                        logger.debug(f"Wrapped field '{field_name}' with Json() for PostgreSQL JSONB handling")
+                        logger.debug("Wrapped field '%s' with Json() for PostgreSQL JSONB handling", field_name)
             return processed_data
 
         # Custom JSON processing mode - serialize to strings
@@ -250,9 +252,8 @@ class BaseRepository(Generic[T, K]):
                         # Serialize to JSON string for manual processing
                         serialized = JSONHandler.serialize(value)
                         processed_data[field_name] = serialized
-                        logger.debug(f"Serialized JSON field '{field_name}' for {self.table_name}")
+                        logger.debug("Serialized JSON field '%s' for %s", field_name, self.table_name)
                     except Exception as e:
-                        logger.error(f"Failed to serialize JSON field '{field_name}' in {self.table_name}: {e}")
                         raise JSONSerializationError(
                             f"JSON serialization failed for field '{field_name}': {e}",
                             field_name=field_name,
@@ -264,9 +265,8 @@ class BaseRepository(Generic[T, K]):
                     try:
                         serialized = JSONHandler.serialize(value)
                         processed_data[field_name] = serialized
-                        logger.debug(f"Serialized non-standard JSON field '{field_name}' for {self.table_name}")
+                        logger.debug("Serialized non-standard JSON field '%s' for %s", field_name, self.table_name)
                     except Exception as e:
-                        logger.error(f"Failed to serialize JSON field '{field_name}' in {self.table_name}: {e}")
                         raise JSONSerializationError(
                             f"JSON serialization failed for field '{field_name}': {e}",
                             field_name=field_name,
@@ -347,7 +347,7 @@ class BaseRepository(Generic[T, K]):
 
         # If no JSON fields should be processed, return the processed data
         if not json_fields:
-            logger.debug(f"No JSON fields configured for {self.table_name}, skipping JSON postprocessing")
+            logger.debug("No JSON fields configured for %s, skipping JSON postprocessing", self.table_name)
             return processed_data
 
         for field_name in self._json_fields:
@@ -360,10 +360,9 @@ class BaseRepository(Generic[T, K]):
                 try:
                     deserialized_value = JSONHandler.deserialize(serialized_value)
                     processed_data[field_name] = deserialized_value
-                    logger.debug(f"Deserialized JSON field '{field_name}' for {self.table_name}")
+                    logger.debug("Deserialized JSON field '%s' for %s", field_name, self.table_name)
                 except Exception as e:
                     if self._strict_json_processing:
-                        logger.error(f"Failed to deserialize JSON field '{field_name}' in {self.table_name}: {e}")
                         raise JSONDeserializationError(
                             f"JSON deserialization failed for field '{field_name}': {e}",
                             field_name=field_name,
@@ -371,12 +370,39 @@ class BaseRepository(Generic[T, K]):
                             original_error=e,
                         ) from e
                     else:
-                        logger.warning(f"Failed to deserialize JSON field '{field_name}' in {self.table_name}: {e}")
+                        logger.warning(
+                            "Failed to deserialize JSON field '%s' in %s: %s", field_name, self.table_name, e
+                        )
                         # Keep the original value to prevent data loss
-                        logger.warning(f"Keeping original value for field '{field_name}' in {self.table_name}")
+                        logger.warning("Keeping original value for field '%s' in %s", field_name, self.table_name)
 
-        logger.debug(f"Postprocessed {len(self._json_fields)} JSON fields for {self.table_name}")
+        logger.debug("Postprocessed %s JSON fields for %s", len(self._json_fields), self.table_name)
         return processed_data
+
+    def _row_to_model(self, row: Any) -> T:
+        """Convert a database row (mapping) into the model, postprocessing JSON/date/vector fields."""
+        return self.model_class(**self._postprocess_data(dict(row)))
+
+    @asynccontextmanager
+    async def _errors(
+        self, operation: str, message: str, passthrough: tuple[type[Exception], ...] = ()
+    ) -> AsyncGenerator[None, None]:
+        """Translate errors raised by a CRUD operation into the repository exception contract.
+
+        Exceptions of a ``passthrough`` type are re-raised unchanged; anything else becomes an
+        ``OperationError("<message>: <error>")`` chained to the original. Each failure is logged
+        once here: missing records at DEBUG (an expected outcome), everything else at ERROR.
+        """
+        try:
+            yield
+        except Exception as e:
+            if isinstance(e, RecordNotFoundError):
+                logger.debug("%s: %s", operation, e)
+            else:
+                logger.error("Error in %s: %s", operation, e)
+            if isinstance(e, passthrough):
+                raise
+            raise OperationError(f"{message}: {e!s}") from e
 
     async def create(self, item: T) -> T:
         """
@@ -389,8 +415,7 @@ class BaseRepository(Generic[T, K]):
             T: The created model instance with any database-generated fields.
 
         Raises:
-            HTTPException: If the creation fails or database error occurs.
-            OperationError: If the database operation doesn't return a result.
+            OperationError: If the database operation fails or returns no row.
             JSONSerializationError: If JSON serialization fails for any field.
 
         Example:
@@ -403,7 +428,7 @@ class BaseRepository(Generic[T, K]):
             If the model has JSON fields, they will be automatically serialized before
             insertion and deserialized when returning the created record.
         """
-        try:
+        async with self._errors("create", "Failed to create record", (OperationError, JSONProcessingError)):
             data = item.model_dump()
             # Preprocess data to serialize JSON fields
             processed_data = self._preprocess_data(data)
@@ -415,14 +440,7 @@ class BaseRepository(Generic[T, K]):
                 if not result:
                     raise OperationError(f"Failed to create {self.table_name} record")
 
-                # Postprocess the result to deserialize JSON fields
-                postprocessed_result = self._postprocess_data(dict(result))
-                return self.model_class(**postprocessed_result)
-        except Exception as e:
-            logger.error(f"Error in create: {e}")
-            if isinstance(e, OperationError | JSONProcessingError):
-                raise
-            raise OperationError(f"Failed to create record: {e!s}") from e
+                return self._row_to_model(result)
 
     async def create_bulk(self, items: list[T], batch_size: int = 100) -> list[T]:
         """
@@ -436,9 +454,9 @@ class BaseRepository(Generic[T, K]):
             List[T]: List of created model instances with database-generated fields.
 
         Raises:
-            HTTPException: If the bulk creation fails or database error occurs.
-            OperationError: If the database operation fails.
-            JSONSerializationError: If JSON serialization fails for any record.
+            OperationError: If the database operation fails, or if JSON serialization fails
+                for any record. Unlike ``create``, a serialization failure is not raised
+                directly: it is wrapped, with the JSONSerializationError as ``__cause__``.
 
         Example:
             ```python
@@ -453,7 +471,7 @@ class BaseRepository(Generic[T, K]):
             insertion and deserialized when returning the created records.
         """
         all_results = []
-        try:
+        async with self._errors("create_bulk", "Failed to create records in bulk"):
             async with self.db_connection.transaction():
                 for i in range(0, len(items), batch_size):
                     batch = items[i : i + batch_size]
@@ -474,13 +492,8 @@ class BaseRepository(Generic[T, K]):
                         await cur.execute(full_query, batch_values)
                         results = await cur.fetchall()
 
-                        # Postprocess each result to deserialize JSON fields
-                        postprocessed_results = [self._postprocess_data(dict(row)) for row in results]
-                        all_results.extend([self.model_class(**row) for row in postprocessed_results])
+                        all_results.extend(self._row_to_model(row) for row in results)
             return all_results
-        except Exception as e:
-            logger.error(f"Error in create_bulk: {e}")
-            raise OperationError(f"Failed to create records in bulk: {e!s}") from e
 
     async def get_by_id(self, record_id: K) -> T:
         """
@@ -510,7 +523,7 @@ class BaseRepository(Generic[T, K]):
             If the model has JSON fields, they will be automatically deserialized
             from the database representation before creating the model instance.
         """
-        try:
+        async with self._errors("get_by_id", "Failed to get record", (RecordNotFoundError, JSONProcessingError)):
             select_query = PsycopgHelper.build_select_query(self.table_name, where_clause={self.primary_key: record_id})
             async with self.db_connection.cursor(row_factory=dict_row) as cur:
                 await cur.execute(select_query, [record_id])
@@ -518,14 +531,7 @@ class BaseRepository(Generic[T, K]):
                 if not result:
                     raise RecordNotFoundError(f"Record with id {record_id} not found")
 
-                # Postprocess the result to deserialize JSON fields
-                postprocessed_result = self._postprocess_data(dict(result))
-                return self.model_class(**postprocessed_result)
-        except Exception as e:
-            logger.error(f"Error in get_by_id: {e}")
-            if isinstance(e, RecordNotFoundError | JSONProcessingError):
-                raise
-            raise OperationError(f"Failed to get record: {e!s}") from e
+                return self._row_to_model(result)
 
     async def get_all(self) -> list[T]:
         """
@@ -535,7 +541,7 @@ class BaseRepository(Generic[T, K]):
             List[T]: List of all model instances in the table.
 
         Raises:
-            HTTPException: If the database query fails.
+            OperationError: If the database query fails.
             JSONDeserializationError: If JSON deserialization fails and strict_json_processing is True.
 
         Example:
@@ -552,20 +558,15 @@ class BaseRepository(Generic[T, K]):
             If the model has JSON fields, they will be automatically deserialized
             from the database representation before creating the model instances.
         """
-        try:
-            async with self.db_connection.cursor(row_factory=dict_row) as cur:
-                query = SQL("SELECT * FROM {}").format(Identifier(self.table_name))
-                await cur.execute(query)
-                rows = await cur.fetchall()
+        async with (
+            self._errors("get_all", "Failed to get all records", (JSONProcessingError,)),
+            self.db_connection.cursor(row_factory=dict_row) as cur,
+        ):
+            query = SQL("SELECT * FROM {}").format(Identifier(self.table_name))
+            await cur.execute(query)
+            rows = await cur.fetchall()
 
-                # Postprocess each row to deserialize JSON fields
-                postprocessed_rows = [self._postprocess_data(dict(row)) for row in rows]
-                return [self.model_class(**row) for row in postprocessed_rows]
-        except Exception as e:
-            logger.error(f"Error in get_all: {e}")
-            if isinstance(e, JSONProcessingError):
-                raise
-            raise OperationError(f"Failed to get all records: {e!s}") from e
+            return [self._row_to_model(row) for row in rows]
 
     async def update(self, record_id: K, data: dict[str, Any]) -> T:
         """
@@ -579,7 +580,7 @@ class BaseRepository(Generic[T, K]):
             T: The updated model instance.
 
         Raises:
-            HTTPException: If the update fails or database error occurs.
+            OperationError: If the database operation fails.
             RecordNotFoundError: If the record is not found.
             JSONSerializationError: If JSON serialization fails for any field.
             JSONDeserializationError: If JSON deserialization fails and strict_json_processing is True.
@@ -597,7 +598,7 @@ class BaseRepository(Generic[T, K]):
             If the data contains JSON fields, they will be automatically serialized before
             the update and deserialized when returning the updated record.
         """
-        try:
+        async with self._errors("update", "Failed to update record", (RecordNotFoundError, JSONProcessingError)):
             # Preprocess data to serialize JSON fields
             processed_data = self._preprocess_data(data)
             update_query = PsycopgHelper.build_update_query(
@@ -610,14 +611,7 @@ class BaseRepository(Generic[T, K]):
                 if not result:
                     raise RecordNotFoundError(f"Record with id {record_id} not found")
 
-                # Postprocess the result to deserialize JSON fields
-                postprocessed_result = self._postprocess_data(dict(result))
-                return self.model_class(**postprocessed_result)
-        except Exception as e:
-            logger.error(f"Error in update: {e}")
-            if isinstance(e, RecordNotFoundError | JSONProcessingError):
-                raise
-            raise OperationError(f"Failed to update record: {e!s}") from e
+                return self._row_to_model(result)
 
     async def delete(self, record_id: K) -> None:
         """
@@ -627,7 +621,8 @@ class BaseRepository(Generic[T, K]):
             record_id (K): The unique identifier of the record to delete.
 
         Raises:
-            HTTPException: If the deletion fails or database error occurs.
+            RecordNotFoundError: If no record has the given ID.
+            OperationError: If the database operation fails.
 
         Example:
             ```python
@@ -641,17 +636,12 @@ class BaseRepository(Generic[T, K]):
         Note:
             This is a hard delete. Consider implementing soft delete if needed.
         """
-        try:
+        async with self._errors("delete", "Failed to delete record", (RecordNotFoundError,)):
             delete_query = PsycopgHelper.build_delete_query(self.table_name, where_clause={self.primary_key: record_id})
             async with self.db_connection.cursor() as cur:
                 await cur.execute(delete_query, [record_id])
                 if cur.rowcount == 0:
                     raise RecordNotFoundError(f"Record with id {record_id} not found")
-        except Exception as e:
-            logger.error(f"Error in delete: {e}")
-            if isinstance(e, RecordNotFoundError):
-                raise
-            raise OperationError(f"Failed to delete record: {e!s}") from e
 
     async def exists(self, record_id: K) -> bool:
         """
@@ -664,7 +654,7 @@ class BaseRepository(Generic[T, K]):
             bool: True if the record exists, False otherwise.
 
         Raises:
-            HTTPException: If the database query fails.
+            OperationError: If the database query fails.
 
         Example:
             ```python
@@ -677,13 +667,10 @@ class BaseRepository(Generic[T, K]):
                 print("User exists")
             ```
         """
-        try:
+        async with self._errors("exists", "Failed to check record existence"):
             query = SQL("SELECT 1 FROM {} WHERE {} = %s").format(
                 Identifier(self.table_name), Identifier(self.primary_key)
             )
             async with self.db_connection.cursor() as cur:
                 await cur.execute(query, [record_id])
                 return bool(await cur.fetchone())
-        except Exception as e:
-            logger.error(f"Error in exists: {e}")
-            raise OperationError(f"Failed to check record existence: {e!s}") from e

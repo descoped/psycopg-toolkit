@@ -1,5 +1,6 @@
 """Unit tests for BaseRepository data preprocessing and postprocessing."""
 
+import logging
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
@@ -12,6 +13,11 @@ from pydantic import BaseModel, Field
 
 from psycopg_toolkit.exceptions import JSONSerializationError
 from psycopg_toolkit.repositories.base import BaseRepository
+
+
+def rendered(caplog: pytest.LogCaptureFixture, level: int) -> list[str]:
+    """Rendered messages logged by psycopg_toolkit at exactly ``level``."""
+    return [r.getMessage() for r in caplog.records if r.levelno == level and r.name.startswith("psycopg_toolkit")]
 
 
 class SampleJSONModel(BaseModel):
@@ -358,45 +364,42 @@ class TestBaseRepositoryDataProcessing:
         # But original should still be unchanged
         assert original_data == original_copy
 
-    @patch("psycopg_toolkit.repositories.base.logger")
-    def test_preprocessing_logging(self, mock_logger, json_repo):
+    def test_preprocessing_logging(self, caplog, json_repo):
         """Test that preprocessing logs appropriately."""
         test_data = {"name": "test_item", "metadata": {"key": "value"}, "tags": ["tag1"]}
 
-        json_repo._preprocess_data(test_data)
+        with caplog.at_level(logging.DEBUG, logger="psycopg_toolkit"):
+            json_repo._preprocess_data(test_data)
 
         # Should log debug messages for each field processed
-        mock_logger.debug.assert_called()
-        debug_calls = [call[0][0] for call in mock_logger.debug.call_args_list]
+        debug_calls = rendered(caplog, logging.DEBUG)
 
         assert any("Serialized JSON field 'metadata'" in call for call in debug_calls)
         assert any("Serialized JSON field 'tags'" in call for call in debug_calls)
 
-    @patch("psycopg_toolkit.repositories.base.logger")
-    def test_postprocessing_logging(self, mock_logger, json_repo):
+    def test_postprocessing_logging(self, caplog, json_repo):
         """Test that postprocessing logs appropriately."""
         test_data = {"name": "test_item", "metadata": '{"key": "value"}', "tags": '["tag1"]'}
 
-        json_repo._postprocess_data(test_data)
+        with caplog.at_level(logging.DEBUG, logger="psycopg_toolkit"):
+            json_repo._postprocess_data(test_data)
 
         # Should log debug messages for each field processed
-        mock_logger.debug.assert_called()
-        debug_calls = [call[0][0] for call in mock_logger.debug.call_args_list]
+        debug_calls = rendered(caplog, logging.DEBUG)
 
         assert any("Deserialized JSON field 'metadata'" in call for call in debug_calls)
         assert any("Deserialized JSON field 'tags'" in call for call in debug_calls)
         assert any("Postprocessed" in call and "JSON fields" in call for call in debug_calls)
 
-    @patch("psycopg_toolkit.repositories.base.logger")
-    def test_postprocessing_error_logging(self, mock_logger, json_repo):
+    def test_postprocessing_error_logging(self, caplog, json_repo):
         """Test that postprocessing logs warnings for errors."""
         test_data = {"name": "test_item", "metadata": "invalid json {", "tags": '["valid"]'}
 
-        json_repo._postprocess_data(test_data)
+        with caplog.at_level(logging.DEBUG, logger="psycopg_toolkit"):
+            json_repo._postprocess_data(test_data)
 
         # Should log warning for failed deserialization
-        mock_logger.warning.assert_called()
-        warning_calls = [call[0][0] for call in mock_logger.warning.call_args_list]
+        warning_calls = rendered(caplog, logging.WARNING)
 
         assert any("Failed to deserialize JSON field 'metadata'" in call for call in warning_calls)
         assert any("Keeping original value for field 'metadata'" in call for call in warning_calls)

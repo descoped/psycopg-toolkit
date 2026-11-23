@@ -69,7 +69,6 @@ class JSONHandler:
         try:
             return json.dumps(data, cls=CustomJSONEncoder, ensure_ascii=False, allow_nan=False)
         except (TypeError, ValueError, OverflowError) as e:
-            logger.error(f"JSON serialization failed for data type {type(data).__name__}: {e}")
             raise ValueError(f"Cannot serialize to JSON: {e}") from e
 
     @staticmethod
@@ -93,7 +92,6 @@ class JSONHandler:
                 json_str = json_str.decode("utf-8")
             return json.loads(json_str)
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
-            logger.error(f"JSON deserialization failed: {e}")
             raise ValueError(f"Cannot deserialize JSON: {e}") from e
 
     @staticmethod
