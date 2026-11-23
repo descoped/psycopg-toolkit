@@ -19,6 +19,10 @@
   "baseBranchPatterns": [
     "master"
   ],
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/.venv/**"
+  ],
   "customManagers": [
     {
       "customType": "regex",
