@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
-from psycopg import AsyncConnection
+from psycopg import AsyncConnection, sql
 from psycopg_pool import AsyncConnectionPool
 
 from ..exceptions import DatabaseConnectionError, DatabaseNotAvailable, DatabasePoolError
@@ -91,13 +91,13 @@ class TransactionContext:
             AsyncConnection: Database connection
         """
         if self.savepoint_name:
-            await self.conn.execute(f"SAVEPOINT {self.savepoint_name}")
+            await self.conn.execute(sql.SQL("SAVEPOINT {}").format(sql.Identifier(self.savepoint_name)))
         return self.conn
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Exit transaction context, rolling back to savepoint on error."""
         if exc_type and self.savepoint_name:
-            await self.conn.execute(f"ROLLBACK TO SAVEPOINT {self.savepoint_name}")
+            await self.conn.execute(sql.SQL("ROLLBACK TO SAVEPOINT {}").format(sql.Identifier(self.savepoint_name)))
 
 
 class TransactionManager:
