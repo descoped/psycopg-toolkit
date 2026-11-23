@@ -437,8 +437,6 @@ psycopg-toolkit/
 - Added JSON-specific exceptions (non-breaking additions)
 - Maintained backwards compatibility for existing exceptions
 
-See `BREAKING_CHANGES.md` for detailed migration guide.
-
 ## Recent Changes
 
 ### pgvector Support (v0.3.1)
