@@ -93,6 +93,10 @@ jobs:
         ls -la dist/
         # Verify the package structure
         uv run python -m zipfile -l dist/*.whl | head -20
+        # PEP 561: without py.typed, type checkers ignore the package's annotations
+        uv run python -m zipfile -l dist/*.whl | grep -q 'psycopg_toolkit/py.typed'
+        # Editor settings must not ship in the sdist
+        ! tar tzf dist/*.tar.gz | grep -q '\.vscode/'
         
     - name: Upload artifacts
       uses: actions/upload-artifact@v7
