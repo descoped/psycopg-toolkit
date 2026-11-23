@@ -1,0 +1,61 @@
+name: Claude Code Review
+
+# Review every pull request opened by a collaborator. Runs on PRs only.
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Skip drafts; review starts when the PR is marked ready.
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Review pull request
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Public repo: never act on fork PRs (untrusted content); bots are not allowed (default).
+          allow_fork_prs: "false"
+          use_sticky_comment: true
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            You are reviewing a pull request for psycopg-toolkit, a public Python library on PyPI
+            (async PostgreSQL toolkit on psycopg 3, psycopg-pool, Pydantic v2). Read
+            .claude/CLAUDE.md for the architecture and conventions before reviewing.
+
+            Review only the changes in this PR (`gh pr diff`). Report real problems, most severe first:
+
+            1. Correctness bugs, with a concrete input or state that triggers them.
+            2. Backwards compatibility: this is a published library, so flag any change in public
+               API or runtime behaviour (BaseRepository, TypeInspector, JSONHandler,
+               TransactionManager, Database, DatabaseSettings, exceptions) that could break
+               existing users, and whether it is documented.
+            3. Data handling: JSONB, PostgreSQL array, pgvector and date field processing; values
+               psycopg has already decoded; serialization round-trips.
+            4. SQL safety: queries must be composed with psycopg.sql (Identifier/Placeholder),
+               never string formatting.
+            5. Async and resource handling: connections, cursors, transactions, savepoints.
+            6. Tests: does a test fail without the change? Are edge cases covered?
+
+            Use inline comments for specific lines and one top-level summary comment. Skip style
+            nits that ruff enforces. If you find nothing significant, say so briefly.
+
+          claude_args: |
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
