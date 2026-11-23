@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Generic, TypeVar
 
 from psycopg import AsyncConnection, sql
+from psycopg.pq import TransactionStatus
 from psycopg_pool import AsyncConnectionPool
 
 from ..exceptions import DatabaseConnectionError, DatabaseNotAvailable, DatabasePoolError
@@ -189,22 +190,42 @@ class TransactionManager:
         Yields:
             D: Test data configuration
         """
-        async with self.transaction() as conn:
-            try:
-                data = await data_manager.setup_data(conn)
-                yield data
-            finally:
+        async with self.transaction() as conn, self._data_scope(conn, data_manager) as data:
+            yield data
+
+    @asynccontextmanager
+    async def _data_scope(self, conn: AsyncConnection, data_manager: DataManager[D]) -> AsyncGenerator[D, None]:
+        """Set up test data on ``conn``, yield it, and clean it up afterwards.
+
+        If setup fails, cleanup is skipped: the surrounding transaction rolls the partial setup back.
+        If the body fails, cleanup is attempted only while the transaction is still usable, and a
+        cleanup failure is logged without replacing the original error.
+        """
+        data = await data_manager.setup_data(conn)
+        try:
+            yield data
+        except BaseException:
+            if conn.info.transaction_status != TransactionStatus.INERROR:
                 try:
                     await data_manager.cleanup_data(conn)
-                except Exception as e:
-                    logger.error(f"Data cleanup failed: {e}")
-                    raise
+                except Exception as cleanup_error:
+                    logger.error(f"Data cleanup failed: {cleanup_error}")
+            raise
+        try:
+            await data_manager.cleanup_data(conn)
+        except Exception as e:
+            logger.error(f"Data cleanup failed: {e}")
+            raise
 
     @asynccontextmanager
     async def managed_transaction(
         self, schema_manager: SchemaManager[T] | None = None, data_manager: DataManager[D] | None = None
     ) -> AsyncGenerator[AsyncConnection, None]:
         """Combined context manager for schema and data operations.
+
+        Schema creation, data setup, the body and data cleanup all run on one connection in one
+        transaction, so each step sees the previous one's uncommitted changes. On success the
+        schema is kept and the test data is cleaned up; on error everything is rolled back.
 
         Args:
             schema_manager: Optional schema manager implementation
@@ -213,18 +234,11 @@ class TransactionManager:
         Yields:
             AsyncConnection: Database connection
         """
-        if schema_manager:
-            async with self.with_schema(schema_manager):
-                if data_manager:
-                    async with self.with_test_data(data_manager), self.transaction() as conn:
-                        yield conn
-                else:
-                    async with self.transaction() as conn:
-                        yield conn
-        else:
+        async with self.transaction() as conn:
+            if schema_manager:
+                await schema_manager.create_schema(conn)
             if data_manager:
-                async with self.with_test_data(data_manager), self.transaction() as conn:
+                async with self._data_scope(conn, data_manager):
                     yield conn
             else:
-                async with self.transaction() as conn:
-                    yield conn
+                yield conn
