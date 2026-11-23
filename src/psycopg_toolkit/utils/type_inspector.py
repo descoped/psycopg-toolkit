@@ -6,7 +6,7 @@ import types
 import typing
 from typing import Any, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, RootModel
 from pydantic.fields import FieldInfo
 
 logger = logging.getLogger(__name__)
@@ -189,12 +189,16 @@ class TypeInspector:
         if annotation is None:
             return False
 
-        # Bare containers (`dict`, `list`) carry no type parameters but are still JSON
-        if annotation in (dict, list):
+        # A bare `dict` carries no type parameters but is still a JSON object.
+        # A bare `list` is deliberately not detected: it has always been passed
+        # through unchanged so psycopg can adapt it to a PostgreSQL array.
+        if annotation is dict:
             return True
 
-        # Nested Pydantic models are dumped to dicts by model_dump() and stored as JSON
-        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        # Nested Pydantic models are dumped to dicts by model_dump() and stored as JSON.
+        # RootModel wrappers are excluded: they dump to their root value (str, list, ...),
+        # not a dict, and keep their previous pass-through behaviour.
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel) and not issubclass(annotation, RootModel):
             return True
 
         # Check direct origin types
