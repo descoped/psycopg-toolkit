@@ -175,3 +175,54 @@ class TestStandaloneHelpers:
         causes = _causes(excinfo.value)
         assert errors.UndefinedTable in causes
         assert errors.InFailedSqlTransaction not in causes
+
+
+class FailingCleanup(RowData):
+    async def cleanup_data(self, conn: AsyncConnection) -> None:
+        self.cleaned = True
+        raise RuntimeError("cleanup failed")
+
+
+class TestCleanupFailures:
+    async def test_cleanup_failure_after_body_error_keeps_original(
+        self, tm: TransactionManager, existing_table: str
+    ) -> None:
+        data = FailingCleanup(existing_table)
+        with pytest.raises(DatabaseConnectionError) as excinfo:
+            async with tm.with_test_data(data):
+                raise ValueError("boom")
+        assert data.cleaned
+        causes = _causes(excinfo.value)
+        assert ValueError in causes
+        assert RuntimeError not in causes
+
+    async def test_cleanup_failure_after_success_propagates(self, tm: TransactionManager, existing_table: str) -> None:
+        """Characterization: a failing cleanup after a successful body is still raised."""
+        with pytest.raises(DatabaseConnectionError) as excinfo:
+            async with tm.with_test_data(FailingCleanup(existing_table)):
+                pass
+        assert RuntimeError in _causes(excinfo.value)
+
+    async def test_managed_cleanup_failure_after_success_propagates(
+        self, tm: TransactionManager, existing_table: str
+    ) -> None:
+        with pytest.raises(DatabaseConnectionError) as excinfo:
+            async with tm.managed_transaction(data_manager=FailingCleanup(existing_table)):
+                pass
+        assert RuntimeError in _causes(excinfo.value)
+
+
+class FailingSchema(TableSchema):
+    async def create_schema(self, conn: AsyncConnection) -> str:
+        raise RuntimeError("schema failed")
+
+
+class TestWithSchemaErrors:
+    async def test_with_schema_error_calls_drop_and_reraises(self, tm: TransactionManager, table: str) -> None:
+        """Characterization: with_schema() tries drop_schema() and re-raises the original error."""
+        schema = FailingSchema(table)
+        with pytest.raises(DatabaseConnectionError) as excinfo:
+            async with tm.with_schema(schema):
+                pass
+        assert schema.dropped
+        assert RuntimeError in _causes(excinfo.value)
