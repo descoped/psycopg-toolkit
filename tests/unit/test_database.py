@@ -100,6 +100,7 @@ async def test_create_pool_success(database):
                 min_size=database._settings.min_pool_size,
                 max_size=database._settings.max_pool_size,
                 timeout=database._settings.pool_timeout,
+                configure=database._configure_new_connection,
                 open=False,
             )
             mock_pool.open.assert_awaited_once()
@@ -132,6 +133,7 @@ async def test_get_pool_new(database):
                 min_size=database._settings.min_pool_size,
                 max_size=database._settings.max_pool_size,
                 timeout=database._settings.pool_timeout,
+                configure=database._configure_new_connection,
                 open=False,
             )
             mock_pool.open.assert_awaited_once()

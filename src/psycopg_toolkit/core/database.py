@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -6,12 +7,12 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .transaction import TransactionManager
 
-from psycopg import AsyncConnection
+from psycopg import AsyncConnection, sql
 from psycopg.types import json
 from psycopg_pool import AsyncConnectionPool
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from ..exceptions import DatabaseConnectionError, DatabaseNotAvailable, DatabasePoolError
+from ..exceptions import DatabaseConnectionError, DatabasePoolError
 from .config import DatabaseSettings
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,8 @@ class Database:
         self._pool: AsyncConnectionPool | None = None
         self._init_callbacks: list[Callable[[AsyncConnectionPool], Awaitable[None]]] = []
         self._transaction_manager: TransactionManager | None = None
+        # Serializes pool creation so concurrent first callers share one pool
+        self._pool_lock = asyncio.Lock()
 
     def _configure_json_adapters(self, connection: AsyncConnection) -> None:
         """Configure psycopg JSON adapters for JSONB support.
@@ -72,6 +75,18 @@ class Database:
         else:
             logger.debug("JSON adapters disabled in settings")
 
+    async def _configure_new_connection(self, connection: AsyncConnection) -> None:
+        """Apply session settings once to every connection the pool creates.
+
+        Runs as the pool's ``configure`` callback, so the statement timeout holds for every
+        pooled connection, whether it is used through ``connection()``, ``transaction()`` or a
+        ``TransactionManager``. The connection is left idle, as the pool requires.
+        """
+        if self._settings.statement_timeout:
+            timeout_ms = int(self._settings.statement_timeout * 1000)
+            await connection.execute(sql.SQL("SET statement_timeout = {}").format(sql.Literal(timeout_ms)))
+            await connection.commit()
+
     @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=4, max=10))
     async def ping_postgres(self) -> bool:
         """Test database connectivity with exponential backoff retry.
@@ -80,7 +95,8 @@ class Database:
             bool: True if connection successful
 
         Raises:
-            DatabaseConnectionError: If connection fails after retries
+            tenacity.RetryError: If all 5 attempts fail. The last attempt's
+                DatabaseConnectionError is available via ``err.last_attempt.exception()``.
         """
         try:
             logger.info(f"Pinging PostgreSQL at {self._settings.host}")
@@ -101,12 +117,11 @@ class Database:
             AsyncConnectionPool: Configured connection pool
 
         Raises:
-            DatabaseConnectionError: If database ping fails
-            DatabasePoolError: If pool creation or initialization fails
+            DatabasePoolError: If the database cannot be reached (ping retries exhausted)
+                or the pool cannot be created or opened. The cause is chained.
         """
         try:
-            if not await self.ping_postgres():
-                raise DatabaseConnectionError("Failed to ping database")
+            await self.ping_postgres()
 
             logger.info("Initializing connection pool")
             pool = AsyncConnectionPool(
@@ -114,6 +129,7 @@ class Database:
                 min_size=self._settings.min_pool_size,
                 max_size=self._settings.max_pool_size,
                 timeout=self._settings.pool_timeout,
+                configure=self._configure_new_connection,
                 open=False,
             )
 
@@ -135,13 +151,15 @@ class Database:
         Returns:
             AsyncConnectionPool: Active connection pool
 
+        Safe to call concurrently: only one pool is ever created.
+
         Raises:
-            DatabaseNotAvailable: If pool creation fails
+            DatabasePoolError: If pool creation fails
         """
-        if not self._pool or self._pool.closed:
-            self._pool = await self.create_pool()
-            if not self._pool:
-                raise DatabaseNotAvailable("Database is not available")
+        if self._pool is None or self._pool.closed:
+            async with self._pool_lock:
+                if self._pool is None or self._pool.closed:
+                    self._pool = await self.create_pool()
         return self._pool
 
     async def register_init_callback(self, callback: Callable[[AsyncConnectionPool], Awaitable[None]]) -> None:
@@ -157,18 +175,24 @@ class Database:
         """Get database connection with configured statement timeout and JSON adapters.
 
         Yields:
-            AsyncConnection: Database connection
+            AsyncConnection: Database connection, idle (no transaction open)
 
         Raises:
-            DatabaseConnectionError: If connection acquisition fails
+            DatabasePoolError: If the pool cannot be created
+            psycopg_pool.PoolTimeout: If no connection becomes available within pool_timeout
+        """
+        async with self._checkout() as conn:
+            yield conn
+
+    @asynccontextmanager
+    async def _checkout(self) -> AsyncGenerator[AsyncConnection, None]:
+        """Borrow a pooled connection with JSON adapters configured.
+
+        The statement timeout is applied once per connection by the pool's configure callback.
         """
         pool = await self.get_pool()
         async with pool.connection() as conn:
-            # Configure JSON adapters if enabled
             self._configure_json_adapters(conn)
-
-            if self._settings.statement_timeout:
-                await conn.execute(f"SET statement_timeout = {int(self._settings.statement_timeout * 1000)}")
             yield conn
 
     async def init_db(self) -> None:
@@ -257,10 +281,5 @@ class Database:
         Yields:
             AsyncConnection: Database connection in transaction
         """
-        pool = await self.get_pool()
-        async with pool.connection() as conn:
-            # Configure JSON adapters if enabled
-            self._configure_json_adapters(conn)
-
-            async with conn.transaction():
-                yield conn
+        async with self._checkout() as conn, conn.transaction():
+            yield conn
