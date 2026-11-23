@@ -37,6 +37,17 @@
         "PostgresContainer\\(\"(?<depName>postgres):(?<currentValue>\\d+)\"\\)"
       ],
       "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Track the pyright version pinned in the CI type-check step",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/.+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "npx --yes (?<depName>pyright)@(?<currentValue>\\d+\\.\\d+\\.\\d+)"
+      ],
+      "datasourceTemplate": "npm"
     }
   ],
   "packageRules": [

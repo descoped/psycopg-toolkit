@@ -10,14 +10,15 @@ Key security features:
 - Uses psycopg.sql.Placeholder for parameter values
 """
 
+from collections.abc import Iterable
 from typing import Any
 
-from psycopg.sql import SQL, Identifier, Placeholder
+from psycopg.sql import SQL, Composed, Identifier, Placeholder
 
 
 class PsycopgHelper:
     @staticmethod
-    def get_columns(keys: dict[str, Any]) -> list[Identifier]:
+    def get_columns(keys: Iterable[str]) -> list[Identifier]:
         """
         Convert dictionary keys to a list of SQL Identifiers for safe column name handling.
 
@@ -30,7 +31,7 @@ class PsycopgHelper:
         return [Identifier(k) for k in keys]
 
     @staticmethod
-    def get_columns_as_list(keys: dict[str, Any]) -> list[str]:
+    def get_columns_as_list(keys: Iterable[str]) -> list[str]:
         """
         Convert dictionary keys to a list of column names as strings.
 
@@ -58,7 +59,7 @@ class PsycopgHelper:
     @staticmethod
     def build_select_query(
         table_name: str, columns: list[str] | None = None, where_clause: dict[str, Any] | None = None
-    ) -> SQL:
+    ) -> Composed:
         """
         Build a safe SELECT query with optional column selection and WHERE clause.
 
@@ -68,7 +69,7 @@ class PsycopgHelper:
             where_clause: Optional dictionary of column-value pairs for WHERE conditions
 
         Returns:
-            SQL object representing the parameterized query
+            Composed SQL object representing the parameterized query
         """
         select_columns = SQL("*") if not columns else SQL(", ").join(map(Identifier, columns))
 
@@ -83,7 +84,7 @@ class PsycopgHelper:
         return query
 
     @staticmethod
-    def build_insert_query(table_name: str, data: dict[str, Any], batch_size: int = 1) -> SQL:
+    def build_insert_query(table_name: str, data: dict[str, Any], batch_size: int = 1) -> Composed:
         """
         Build a safe INSERT query, supporting batch inserts.
 
@@ -93,7 +94,7 @@ class PsycopgHelper:
             batch_size: Number of records to insert (for batch inserts)
 
         Returns:
-            SQL object representing the parameterized query
+            Composed SQL object representing the parameterized query
 
         Example:
             >>> query = PsycopgHelper.build_insert_query("users", {"name": "John", "age": 30}, batch_size=1)
@@ -112,7 +113,7 @@ class PsycopgHelper:
         )
 
     @staticmethod
-    def build_update_query(table_name: str, data: dict[str, Any], where_clause: dict[str, Any]) -> SQL:
+    def build_update_query(table_name: str, data: dict[str, Any], where_clause: dict[str, Any]) -> Composed:
         """
         Build a safe UPDATE query with SET and WHERE clauses.
 
@@ -122,7 +123,7 @@ class PsycopgHelper:
             where_clause: Dictionary of column-value pairs for WHERE conditions
 
         Returns:
-            SQL object representing the parameterized query
+            Composed SQL object representing the parameterized query
 
         Example:
             >>> query = PsycopgHelper.build_update_query("users",
@@ -139,7 +140,7 @@ class PsycopgHelper:
         return SQL("UPDATE {} SET {} WHERE {}").format(Identifier(table_name), set_items, where_conditions)
 
     @staticmethod
-    def build_delete_query(table_name: str, where_clause: dict[str, Any]) -> SQL:
+    def build_delete_query(table_name: str, where_clause: dict[str, Any]) -> Composed:
         """
         Build a safe DELETE query with WHERE clause.
 
@@ -148,7 +149,7 @@ class PsycopgHelper:
             where_clause: Dictionary of column-value pairs for WHERE conditions
 
         Returns:
-            SQL object representing the parameterized query
+            Composed SQL object representing the parameterized query
 
         Example:
             >>> query = PsycopgHelper.build_delete_query("users", {"id": 1})
