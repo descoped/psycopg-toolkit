@@ -189,6 +189,14 @@ class TypeInspector:
         if annotation is None:
             return False
 
+        # Bare containers (`dict`, `list`) carry no type parameters but are still JSON
+        if annotation in (dict, list):
+            return True
+
+        # Nested Pydantic models are dumped to dicts by model_dump() and stored as JSON
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            return True
+
         # Check direct origin types
         if TypeInspector._check_origin_type(annotation):
             return True

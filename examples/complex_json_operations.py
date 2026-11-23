@@ -18,12 +18,14 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
+from psycopg.rows import dict_row
 from pydantic import BaseModel, ConfigDict, Field
 from testcontainers.community.postgres import PostgresContainer
 
 from psycopg_toolkit import (
     BaseRepository,
     Database,
+    DatabaseConnectionError,
     DatabaseSettings,
     RecordNotFoundError,
     TransactionManager,
@@ -134,7 +136,7 @@ class OrderRepository(BaseRepository[Order, UUID]):
             ORDER BY created_at DESC
         """
 
-        async with self.db_connection.cursor() as cur:
+        async with self.db_connection.cursor(row_factory=dict_row) as cur:
             await cur.execute(query, [customer_id])
             rows = await cur.fetchall()
 
@@ -151,7 +153,7 @@ class OrderRepository(BaseRepository[Order, UUID]):
         # Search for product in items array
         search_param = json.dumps([{"product_id": str(product_id)}])
 
-        async with self.db_connection.cursor() as cur:
+        async with self.db_connection.cursor(row_factory=dict_row) as cur:
             await cur.execute(query, [search_param])
             rows = await cur.fetchall()
 
@@ -166,7 +168,7 @@ class OrderRepository(BaseRepository[Order, UUID]):
             ORDER BY created_at DESC
         """
 
-        async with self.db_connection.cursor() as cur:
+        async with self.db_connection.cursor(row_factory=dict_row) as cur:
             await cur.execute(query, [status, start_date, end_date])
             rows = await cur.fetchall()
 
@@ -205,7 +207,7 @@ class OrderRepository(BaseRepository[Order, UUID]):
             ORDER BY order_count DESC
         """
 
-        async with self.db_connection.cursor() as cur:
+        async with self.db_connection.cursor(row_factory=dict_row) as cur:
             await cur.execute(query)
             rows = await cur.fetchall()
 
@@ -247,7 +249,7 @@ class AnalyticsRepository(BaseRepository[Analytics, UUID]):
         path = f"{{{metric_name}}}"
         value_json = json.dumps(value)
 
-        async with self.db_connection.cursor() as cur:
+        async with self.db_connection.cursor(row_factory=dict_row) as cur:
             await cur.execute(query, [path, metric_name, value_json, analytics_id])
             row = await cur.fetchone()
 
@@ -266,7 +268,7 @@ class AnalyticsRepository(BaseRepository[Analytics, UUID]):
 
         tags_json = json.dumps(tags)
 
-        async with self.db_connection.cursor() as cur:
+        async with self.db_connection.cursor(row_factory=dict_row) as cur:
             await cur.execute(query, [tags_json])
             rows = await cur.fetchall()
 
@@ -458,8 +460,10 @@ async def demonstrate_complex_operations(db: Database):
                 if updated_tx.billing_info.get("method") == "pending":
                     raise ValueError("Billing method not set")
 
-        except ValueError as e:
-            print(f"  Transaction rolled back: {e}")
+        except DatabaseConnectionError as e:
+            # TransactionManager rolls back and wraps any error raised in the block;
+            # the original exception is chained as __cause__
+            print(f"  Transaction rolled back: {e.__cause__}")
 
         # 4. Complex queries
         print("\n4. Demonstrating complex JSONB queries...")

@@ -493,3 +493,34 @@ class TestVectorFieldDetection:
         # JSON detection will include all lists initially (vector fields excluded later)
         assert "tags" in json_fields
         assert "metadata" in json_fields
+
+
+class TestNestedModelAndBareContainerDetection:
+    """Nested Pydantic models and unparameterized dict/list are stored as JSON."""
+
+    def test_nested_model_fields_are_json(self):
+        class Address(BaseModel):
+            city: str
+
+        class Customer(BaseModel):
+            name: str
+            address: Address
+            billing_address: Address | None = None
+            previous_addresses: list[Address] = []
+
+        assert TypeInspector.detect_json_fields(Customer) == {"address", "billing_address", "previous_addresses"}
+
+    def test_bare_dict_and_list_are_json(self):
+        class Loose(BaseModel):
+            name: str
+            data: dict
+            items: list
+            maybe: dict | None = None
+
+        assert TypeInspector.detect_json_fields(Loose) == {"data", "items", "maybe"}
+
+    def test_bare_list_is_not_a_vector(self):
+        class Loose(BaseModel):
+            items: list
+
+        assert TypeInspector.detect_vector_fields(Loose) == set()

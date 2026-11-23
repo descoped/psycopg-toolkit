@@ -1,159 +1,73 @@
 # psycopg-toolkit Examples
 
-This directory contains example scripts demonstrating various features of psycopg-toolkit.
+Runnable scripts demonstrating psycopg-toolkit features. Every example starts its own
+throwaway PostgreSQL 18 container with [testcontainers](https://testcontainers-python.readthedocs.io/),
+so no local database setup is needed.
 
 ## Available Examples
 
-### Basic Examples
+### Getting Started
 
 #### [basic_usage.py](basic_usage.py)
-Basic introduction to psycopg-toolkit features:
-- Database connection setup
-- Simple CRUD operations
-- Connection pooling
-- Basic error handling
+- `DatabaseSettings` and `Database` setup against a PostgreSQL container
+- Acquiring a pooled connection and running a query
 
-#### [repository_pattern.py](repository_pattern.py)
-Demonstrates the repository pattern:
-- Creating custom repositories
-- Extending BaseRepository
-- Implementing custom queries
-- Type-safe operations with generics
+#### [transaction_usage.py](transaction_usage.py)
+- `TransactionManager` transactions
+- Automatic commit and rollback
 
-### JSONB Examples
-
-#### [jsonb_usage.py](jsonb_usage.py)
-Introduction to JSONB support:
-- Models with JSONB fields
-- Automatic JSON serialization/deserialization
-- Basic CRUD with JSONB data
-- Using PostgreSQL JSONB operators
+### JSONB
 
 #### [jsonb_usage_simple.py](jsonb_usage_simple.py)
-Simplified JSONB example using psycopg's native JSON adapters:
+Quick start using psycopg's native JSON adapters:
 - Minimal configuration
-- Direct JSONB operations
-- Quick start example
+- CRUD with JSONB columns
+
+#### [jsonb_usage.py](jsonb_usage.py)
+JSON field handling in `BaseRepository`:
+- Automatic JSON field detection from type hints
+- Explicit `json_fields` and strict JSON processing
+- Serialization error handling
 
 #### [complex_json_operations.py](complex_json_operations.py)
-Advanced JSONB operations and patterns:
-- Complex nested JSON structures
-- Bulk operations with JSONB
-- Transaction handling
+Advanced JSONB patterns:
+- Nested Pydantic models and complex JSON structures
+- Bulk operations
+- Transactions with rollback on validation errors
 - Direct JSONB queries using PostgreSQL operators
-- Time-series data in JSONB
-- Performance optimization techniques
-- Comprehensive error handling
+- Time-series analytics data
 
 #### [array_and_date_fields.py](array_and_date_fields.py)
-PostgreSQL arrays and date field handling:
-- Using `array_fields` to preserve PostgreSQL arrays (TEXT[], INTEGER[])
-- Using `date_fields` for automatic date/string conversion
-- Mixing JSONB, arrays, and date fields in one model
-- Practical examples with OAuth clients and user profiles
-
-### Advanced Examples
-
-#### [bulk_operations.py](bulk_operations.py)
-Efficient bulk data operations:
-- Bulk inserts with batching
-- Performance considerations
-- Transaction management for bulk operations
-
-#### [connection_pool.py](connection_pool.py)
-Advanced connection pooling:
-- Pool configuration
-- Connection lifecycle
-- Performance monitoring
-- Pool size optimization
-
-#### [custom_repository.py](custom_repository.py)
-Creating sophisticated custom repositories:
-- Complex query methods
-- Aggregations
-- Joins and relationships
-- Custom result processing
-
-#### [transaction_management.py](transaction_management.py)
-Advanced transaction patterns:
-- Nested transactions
-- Savepoints
-- Transaction isolation levels
-- Error recovery strategies
+PostgreSQL arrays and date handling:
+- `array_fields` to keep PostgreSQL arrays (`TEXT[]`, `INTEGER[]`) instead of JSONB
+- `date_fields` for automatic date/string conversion
+- Mixing JSONB, arrays and date fields in one model
 
 ## Running the Examples
 
 ### Prerequisites
 
-1. PostgreSQL 15+ installed and running
-2. Python 3.11+ installed
-3. psycopg-toolkit installed:
+1. Python 3.11+
+2. A running Docker daemon (Docker Desktop, Colima, Podman, ...)
+3. The project's development environment:
    ```bash
-   pip install psycopg-toolkit
+   uv sync --all-groups
    ```
-
-### Database Setup
-
-Most examples expect a PostgreSQL database with these credentials:
-- Host: localhost
-- Port: 5432
-- Database: psycopg_test
-- User: postgres
-- Password: postgres
-
-You can create the test database:
-```sql
-CREATE DATABASE psycopg_test;
-```
 
 ### Running an Example
 
 ```bash
-python examples/basic_usage.py
+uv run python examples/basic_usage.py
 ```
 
-For JSONB examples with test data:
-```bash
-# Setup test schema (for complex examples)
-python tests/schema/manage_test_schema.py setup
-
-# Run the example
-python examples/complex_json_operations.py
-```
-
-## Example Categories
-
-### Getting Started
-Start with these examples if you're new to psycopg-toolkit:
-1. `basic_usage.py` - Learn the fundamentals
-2. `repository_pattern.py` - Understand the repository pattern
-3. `jsonb_usage_simple.py` - Quick JSONB introduction
-
-### JSONB Features
-For working with JSON data in PostgreSQL:
-1. `jsonb_usage.py` - Comprehensive JSONB introduction
-2. `complex_json_operations.py` - Advanced patterns and optimization
-3. `array_and_date_fields.py` - PostgreSQL arrays vs JSONB and date handling
-
-### Performance & Scale
-For production applications:
-1. `connection_pool.py` - Connection management
-2. `bulk_operations.py` - Handling large datasets
-3. `transaction_management.py` - Data consistency
-
-## Best Practices Demonstrated
-
-1. **Type Safety**: All examples use type hints and Pydantic models
-2. **Error Handling**: Proper exception handling and recovery
-3. **Performance**: Connection pooling and bulk operations
-4. **Transactions**: ACID compliance and isolation
-5. **JSONB**: Leveraging PostgreSQL's native JSON capabilities
+Note: the development environment deliberately excludes `charset-normalizer` to stay
+lean (see `[tool.uv]` in `pyproject.toml`), so `requests` prints a one-time
+`RequestsDependencyWarning` about character detection. It is harmless.
 
 ## Contributing
 
-Feel free to contribute additional examples! Make sure to:
-- Include comprehensive comments
-- Demonstrate best practices
-- Handle errors appropriately
-- Include setup/teardown as needed
-- Update this README
+New examples are welcome. Please:
+- Start a container with `PostgresContainer("postgres:18")` so the example is self-contained
+- Include comments and handle errors explicitly
+- Make sure the script exits with status 0
+- Add it to this README

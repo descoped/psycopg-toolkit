@@ -400,3 +400,36 @@ class TestBaseRepositoryDataProcessing:
 
         assert any("Failed to deserialize JSON field 'metadata'" in call for call in warning_calls)
         assert any("Keeping original value for field 'metadata'" in call for call in warning_calls)
+
+
+class TestPostprocessAlreadyDecodedJSON:
+    """psycopg decodes json/jsonb columns itself, so dict/list values must pass through untouched."""
+
+    @pytest.fixture
+    def strict_repo(self):
+        return BaseRepository(
+            db_connection=AsyncMock(),
+            table_name="test_table",
+            model_class=SampleJSONModel,
+            primary_key="id",
+            strict_json_processing=True,
+        )
+
+    def test_decoded_values_pass_through_in_strict_mode(self, strict_repo):
+        row = {"name": "n", "value": 1, "metadata": {"a": 1}, "tags": ["x", "y"], "settings": None}
+
+        with patch("psycopg_toolkit.repositories.base.JSONHandler.deserialize") as deserialize:
+            result = strict_repo._postprocess_data(row)
+
+        deserialize.assert_not_called()
+        assert result["metadata"] == {"a": 1}
+        assert result["tags"] == ["x", "y"]
+        assert result["settings"] is None
+
+    def test_string_values_are_still_deserialized(self, strict_repo):
+        row = {"name": "n", "value": 1, "metadata": '{"a": 1}', "tags": b'["x"]'}
+
+        result = strict_repo._postprocess_data(row)
+
+        assert result["metadata"] == {"a": 1}
+        assert result["tags"] == ["x"]

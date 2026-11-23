@@ -351,8 +351,12 @@ class BaseRepository(Generic[T, K]):
 
         for field_name in self._json_fields:
             if field_name in processed_data and processed_data[field_name] is not None:
+                serialized_value = processed_data[field_name]
+                if not isinstance(serialized_value, str | bytes):
+                    # psycopg always decodes json/jsonb columns to Python objects,
+                    # so a dict/list here is already deserialized
+                    continue
                 try:
-                    serialized_value = processed_data[field_name]
                     deserialized_value = JSONHandler.deserialize(serialized_value)
                     processed_data[field_name] = deserialized_value
                     logger.debug(f"Deserialized JSON field '{field_name}' for {self.table_name}")
