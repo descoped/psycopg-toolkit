@@ -132,7 +132,7 @@ class BaseRepository(Generic[T, K]):
 
         # Vector field detection and configuration
         if vector_fields is not None:
-            self._vector_fields = vector_fields
+            self._vector_fields: set[str] = vector_fields
             logger.debug("Using explicit vector fields for %s: %s", table_name, vector_fields)
         elif auto_detect_vector:
             self._vector_fields = TypeInspector.detect_vector_fields(model_class)
@@ -143,7 +143,7 @@ class BaseRepository(Generic[T, K]):
 
         # JSON field detection and configuration
         if json_fields is not None:
-            self._json_fields = json_fields
+            self._json_fields: set[str] = json_fields
             logger.debug("Using explicit JSON fields for %s: %s", table_name, json_fields)
         elif auto_detect_json:
             detected_fields = TypeInspector.detect_json_fields(model_class)
@@ -360,7 +360,7 @@ class BaseRepository(Generic[T, K]):
                         raise JSONDeserializationError(
                             f"JSON deserialization failed for field '{field_name}': {e}",
                             field_name=field_name,
-                            json_data=str(serialized_value) if serialized_value is not None else None,
+                            json_data=str(serialized_value),
                             original_error=e,
                         ) from e
                     else:

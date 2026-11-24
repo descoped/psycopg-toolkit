@@ -46,6 +46,12 @@ jobs:
         uv run ruff check .
         uv run ruff format --check .
 
+    - name: Type check (ty)
+      # [tool.ty] pins python-version to the 3.11 floor and covers src, tests and examples.
+      if: matrix.python-version == '3.13'
+      run: |
+        uv run ty check --output-format github
+
     - name: Type check (pyright)
       # pythonVersion in [tool.pyright] pins the check to the 3.11 floor, so one run suffices.
       # tests/typing holds assert_type checks for the public API.

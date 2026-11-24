@@ -5,7 +5,7 @@ from collections.abc import AsyncGenerator
 from unittest.mock import patch
 
 import pytest
-from psycopg import OperationalError
+from psycopg import AsyncConnection, OperationalError
 from tenacity import RetryError
 
 from psycopg_toolkit import Database, DatabasePoolError, DatabaseSettings
@@ -25,8 +25,10 @@ def _settings(base: DatabaseSettings, **overrides: object) -> DatabaseSettings:
     return DatabaseSettings(**values)  # type: ignore[arg-type]
 
 
-async def _show_timeout(conn) -> str:  # type: ignore[no-untyped-def]
-    return (await (await conn.execute("SHOW statement_timeout")).fetchone())[0]
+async def _show_timeout(conn: AsyncConnection) -> str:
+    row = await (await conn.execute("SHOW statement_timeout")).fetchone()
+    assert row is not None
+    return str(row[0])
 
 
 @pytest.fixture
@@ -153,3 +155,19 @@ class TestFailureContract:
                 await unreachable.create_pool()
             with pytest.raises(DatabasePoolError):
                 await unreachable.get_pool()
+
+
+async def test_check_pool_health_true_on_live_pool(plain_db: Database) -> None:
+    assert await plain_db.check_pool_health() is True
+
+
+async def test_check_pool_health_false_when_pool_unavailable(plain_db: Database) -> None:
+    with patch.object(plain_db, "get_pool", side_effect=DatabasePoolError("Failed to create pool")):
+        assert await plain_db.check_pool_health() is False
+
+
+async def test_check_pool_health_false_when_query_fails(plain_db: Database) -> None:
+    pool = await plain_db.get_pool()
+    await pool.close()
+    with patch.object(plain_db, "get_pool", return_value=pool):
+        assert await plain_db.check_pool_health() is False

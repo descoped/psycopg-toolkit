@@ -19,6 +19,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from psycopg.rows import dict_row
+from psycopg.sql import SQL, Identifier
 from pydantic import BaseModel, ConfigDict, Field
 from testcontainers.community.postgres import PostgresContainer
 
@@ -28,7 +29,6 @@ from psycopg_toolkit import (
     DatabaseConnectionError,
     DatabaseSettings,
     RecordNotFoundError,
-    TransactionManager,
 )
 
 
@@ -130,11 +130,11 @@ class OrderRepository(BaseRepository[Order, UUID]):
 
     async def find_by_customer(self, customer_id: UUID) -> list[Order]:
         """Find all orders for a customer."""
-        query = f"""
-            SELECT * FROM {self.table_name}
+        query = SQL("""
+            SELECT * FROM {}
             WHERE customer_id = %s
             ORDER BY created_at DESC
-        """
+        """).format(Identifier(self.table_name))
 
         async with self.db_connection.cursor(row_factory=dict_row) as cur:
             await cur.execute(query, [customer_id])
@@ -144,11 +144,11 @@ class OrderRepository(BaseRepository[Order, UUID]):
 
     async def find_by_product(self, product_id: UUID) -> list[Order]:
         """Find orders containing a specific product using JSONB operators."""
-        query = f"""
-            SELECT * FROM {self.table_name}
+        query = SQL("""
+            SELECT * FROM {}
             WHERE items @> %s::jsonb
             ORDER BY created_at DESC
-        """
+        """).format(Identifier(self.table_name))
 
         # Search for product in items array
         search_param = json.dumps([{"product_id": str(product_id)}])
@@ -161,12 +161,12 @@ class OrderRepository(BaseRepository[Order, UUID]):
 
     async def find_by_status_and_date_range(self, status: str, start_date: datetime, end_date: datetime) -> list[Order]:
         """Find orders by status within a date range."""
-        query = f"""
-            SELECT * FROM {self.table_name}
+        query = SQL("""
+            SELECT * FROM {}
             WHERE status = %s
             AND created_at BETWEEN %s AND %s
             ORDER BY created_at DESC
-        """
+        """).format(Identifier(self.table_name))
 
         async with self.db_connection.cursor(row_factory=dict_row) as cur:
             await cur.execute(query, [status, start_date, end_date])
@@ -194,7 +194,7 @@ class OrderRepository(BaseRepository[Order, UUID]):
 
     async def aggregate_by_city(self) -> list[dict[str, Any]]:
         """Aggregate orders by shipping city using JSONB operations."""
-        query = f"""
+        query = SQL("""
             SELECT
                 shipping_address->>'city' as city,
                 COUNT(*) as order_count,
@@ -202,10 +202,10 @@ class OrderRepository(BaseRepository[Order, UUID]):
                     (SELECT SUM((item->>'quantity')::int * (item->>'unit_price')::decimal)
                      FROM jsonb_array_elements(items) as item)
                 ) as total_revenue
-            FROM {self.table_name}
+            FROM {}
             GROUP BY shipping_address->>'city'
             ORDER BY order_count DESC
-        """
+        """).format(Identifier(self.table_name))
 
         async with self.db_connection.cursor(row_factory=dict_row) as cur:
             await cur.execute(query)
@@ -235,8 +235,8 @@ class AnalyticsRepository(BaseRepository[Analytics, UUID]):
 
     async def append_metric(self, analytics_id: UUID, metric_name: str, value: dict[str, Any]) -> Analytics:
         """Append a new metric value to the time-series data."""
-        query = f"""
-            UPDATE {self.table_name}
+        query = SQL("""
+            UPDATE {}
             SET metrics = jsonb_set(
                 metrics,
                 %s,
@@ -244,7 +244,7 @@ class AnalyticsRepository(BaseRepository[Analytics, UUID]):
             )
             WHERE id = %s
             RETURNING *
-        """
+        """).format(Identifier(self.table_name))
 
         path = f"{{{metric_name}}}"
         value_json = json.dumps(value)
@@ -260,11 +260,11 @@ class AnalyticsRepository(BaseRepository[Analytics, UUID]):
 
     async def query_by_tags(self, tags: list[str]) -> list[Analytics]:
         """Find analytics entries containing all specified tags."""
-        query = f"""
-            SELECT * FROM {self.table_name}
+        query = SQL("""
+            SELECT * FROM {}
             WHERE tags @> %s::jsonb
             ORDER BY created_at DESC
-        """
+        """).format(Identifier(self.table_name))
 
         tags_json = json.dumps(tags)
 
@@ -427,7 +427,7 @@ async def demonstrate_complex_operations(db: Database):
         # 3. Transaction handling
         print("\n3. Demonstrating transaction handling...")
 
-        tx_manager = TransactionManager(db)
+        tx_manager = await db.get_transaction_manager()
 
         try:
             async with tx_manager.transaction() as tx_conn:

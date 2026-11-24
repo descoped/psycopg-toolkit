@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 from psycopg import AsyncConnection, AsyncTransaction
 from psycopg_pool import AsyncConnectionPool
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 from schema_and_data import TestUserData, UserSchemaManager
 from testcontainers.community.postgres import PostgresContainer
 
@@ -314,8 +314,6 @@ class SimpleJSON(BaseModel):
     id: int | None = None
     data: dict[str, Any]
 
-    model_config = ConfigDict(exclude_none=True)
-
 
 class ComplexJSON(BaseModel):
     """Model with multiple JSONB fields for complex testing."""
@@ -325,8 +323,6 @@ class ComplexJSON(BaseModel):
     metadata: dict[str, Any]
     tags: list[str] | None = None
     settings: dict[str, Any] | None = None
-
-    model_config = ConfigDict(exclude_none=True)
 
 
 # JSONB fixtures

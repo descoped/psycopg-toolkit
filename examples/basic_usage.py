@@ -30,6 +30,7 @@ async def main():
                 # Execute a simple query
                 await cur.execute("SELECT version();")
                 version = await cur.fetchone()
+                assert version is not None
                 print(f"PostgreSQL version:\n{version[0]}")
 
         finally:

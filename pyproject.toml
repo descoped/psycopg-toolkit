@@ -43,6 +43,7 @@ test = [
 ]
 dev = [
     "ruff>=0.17.6",
+    "ty>=0.0.109",
 ]
 
 [build-system]
@@ -156,6 +157,48 @@ include = ["src", "tests", "examples"]
 # Check against the lowest supported Python so newer-only syntax is caught.
 pythonVersion = "3.11"
 typeCheckingMode = "standard"
+
+[tool.ty]
+# Astral's type checker: `uv run ty check` (a dev dependency, so the version is locked and
+# Renovate tracks it). It finds uv's `.venv` itself (VIRTUAL_ENV under `uv run`, else `.venv`
+# next to this file), so no interpreter path is set.
+#
+# This is a published library with a typed API (py.typed), so it is checked strictly:
+# every diagnostic fails, warnings included, and nothing is silenced per directory except
+# deliberate wrong-type usage in tests. Suppress a single line with `# ty: ignore[<rule>]`
+# and a comment saying why; never a bare `ty: ignore`.
+
+[tool.ty.environment]
+# ty defaults to the newest Python it knows; check against the supported floor instead.
+python-version = "3.11"
+
+[tool.ty.src]
+include = ["src", "tests", "examples"]
+
+[tool.ty.terminal]
+error-on-warning = true
+
+[tool.ty.rules]
+# Opt-in rules that hold for this code base. tests/typing marks errors that MUST occur with
+# ty: ignore comments, so an unused one fails.
+unused-ignore-comment = "error"
+possibly-unresolved-reference = "error"
+unsound-return = "error"
+redundant-condition-strict = "error"
+# pyright cannot infer AsyncConnectionPool's type parameter and needs the cast in
+# Database.create_pool; ty can, and would otherwise flag it.
+redundant-cast = "ignore"
+
+[[tool.ty.overrides]]
+# Tests pass wrong types on purpose (invalid modes, None connections, non-Pydantic classes),
+# and the JSONB test models use `id: int | None` for SERIAL keys that are set after insert.
+include = ["tests/**"]
+exclude = ["tests/typing/**"]
+
+[tool.ty.overrides.rules]
+invalid-argument-type = "ignore"
+unsupported-operator = "ignore"
+no-matching-overload = "ignore"
 
 [tool.ruff]
 target-version = "py311"

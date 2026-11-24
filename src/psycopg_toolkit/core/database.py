@@ -251,7 +251,7 @@ class Database:
             async with pool.connection() as conn, conn.cursor() as cur:
                 await cur.execute("SELECT 1")
                 result = await cur.fetchone()
-                return result is not None and result[0] == 1
+                return result is not None and bool(result[0] == 1)
         except Exception as e:
             logger.error(f"Pool health check failed: {e}")
             return False

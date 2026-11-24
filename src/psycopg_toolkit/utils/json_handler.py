@@ -37,7 +37,7 @@ class CustomJSONEncoder(json.JSONEncoder):
 
     # The parameter keeps its public name `obj` (the base class calls it `o`); renaming it would
     # break callers that pass it by keyword.
-    def default(self, obj: Any) -> Any:  # pyright: ignore[reportIncompatibleMethodOverride]
+    def default(self, obj: Any) -> Any:  # pyright: ignore[reportIncompatibleMethodOverride]  # ty: ignore[lost-keyword-for-regular-parameter]
         """Convert objects to JSON-serializable format.
 
         Args:
