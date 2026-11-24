@@ -42,6 +42,7 @@ async def repository_types(conn: AsyncConnection, user_id: UUID, user: User) -> 
     assert_type(await repo.create_bulk([user]), list[User])
     assert_type(await repo.update(user_id, {"name": "x"}), User)
     assert_type(await repo.exists(user_id), bool)
+    assert_type(repo.row_to_model({"id": user_id, "name": "x"}), User)
 
     # The model type must be a Pydantic model
     BaseRepository[NotAModel, int]  # pyright: ignore[reportInvalidTypeArguments]  # ty: ignore[invalid-type-arguments]

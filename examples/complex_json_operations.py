@@ -140,7 +140,7 @@ class OrderRepository(BaseRepository[Order, UUID]):
             await cur.execute(query, [customer_id])
             rows = await cur.fetchall()
 
-            return [self.model_class(**self._postprocess_data(dict(row))) for row in rows]
+            return [self.row_to_model(row) for row in rows]
 
     async def find_by_product(self, product_id: UUID) -> list[Order]:
         """Find orders containing a specific product using JSONB operators."""
@@ -157,7 +157,7 @@ class OrderRepository(BaseRepository[Order, UUID]):
             await cur.execute(query, [search_param])
             rows = await cur.fetchall()
 
-            return [self.model_class(**self._postprocess_data(dict(row))) for row in rows]
+            return [self.row_to_model(row) for row in rows]
 
     async def find_by_status_and_date_range(self, status: str, start_date: datetime, end_date: datetime) -> list[Order]:
         """Find orders by status within a date range."""
@@ -172,7 +172,7 @@ class OrderRepository(BaseRepository[Order, UUID]):
             await cur.execute(query, [status, start_date, end_date])
             rows = await cur.fetchall()
 
-            return [self.model_class(**self._postprocess_data(dict(row))) for row in rows]
+            return [self.row_to_model(row) for row in rows]
 
     async def update_order_status(self, order_id: UUID, new_status: str) -> Order:
         """Update order status and add to metadata history."""
@@ -256,7 +256,7 @@ class AnalyticsRepository(BaseRepository[Analytics, UUID]):
             if not row:
                 raise RecordNotFoundError(f"Analytics {analytics_id} not found")
 
-            return self.model_class(**self._postprocess_data(dict(row)))
+            return self.row_to_model(row)
 
     async def query_by_tags(self, tags: list[str]) -> list[Analytics]:
         """Find analytics entries containing all specified tags."""
@@ -272,7 +272,7 @@ class AnalyticsRepository(BaseRepository[Analytics, UUID]):
             await cur.execute(query, [tags_json])
             rows = await cur.fetchall()
 
-            return [self.model_class(**self._postprocess_data(dict(row))) for row in rows]
+            return [self.row_to_model(row) for row in rows]
 
 
 async def setup_database(container):
