@@ -290,3 +290,18 @@ async def test_get_pool_cancelled_during_open_allows_a_retry(database):
             await task
         assert await asyncio.wait_for(database.get_pool(), timeout=1) is second
     first.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_create_pool_keyboard_interrupt_during_open_closes_pool_and_propagates(database):
+    """Non-Exception exits (KeyboardInterrupt) close the pool and are re-raised unchanged."""
+    pool = AsyncMock()
+    pool.open = AsyncMock(side_effect=KeyboardInterrupt)
+    with (
+        patch.object(Database, "ping_postgres", new=AsyncMock(return_value=True)),
+        patch("psycopg_toolkit.core.database.AsyncConnectionPool", return_value=pool),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        await database.create_pool()
+    pool.close.assert_awaited_once()
+    assert database._pool is None
