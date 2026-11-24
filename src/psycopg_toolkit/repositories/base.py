@@ -1,25 +1,22 @@
 import logging
 from collections.abc import AsyncGenerator, Mapping
 from contextlib import asynccontextmanager
-from datetime import date, datetime
 from typing import Any, Generic, TypeVar
 
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 from psycopg.sql import SQL, Identifier
-from psycopg.types.json import Json
 from pydantic import BaseModel
 
 from ..exceptions import (
-    JSONDeserializationError,
     JSONProcessingError,
-    JSONSerializationError,
     OperationError,
     RecordNotFoundError,
 )
 from ..utils import PsycopgHelper
-from ..utils.json_handler import DecimalMode, JSONHandler, check_decimal_mode
+from ..utils.json_handler import DecimalMode, check_decimal_mode
 from ..utils.type_inspector import TypeInspector
+from .codecs import DateCodec, FieldCodec, JsonCodec, PsycopgJsonCodec, VectorCodec
 
 # Generic type variables for model and primary key
 T = TypeVar("T", bound=BaseModel)
@@ -80,6 +77,7 @@ class BaseRepository(Generic[T, K]):
         vector_fields: set[str] | None = None,
         auto_detect_vector: bool = True,
         decimal_as: DecimalMode = "str",
+        field_codecs: Mapping[str, FieldCodec] | None = None,
     ):
         """
         Initialize the base repository.
@@ -113,6 +111,9 @@ class BaseRepository(Generic[T, K]):
                 JSON string, which reads back as ``str`` (convert with ``Decimal(value)``);
                 "float" writes a JSON number, which may lose digits. Applies to the toolkit's own JSON serialization, not to
                 values wrapped with ``Json()`` when ``auto_detect_json=False``.
+            field_codecs (Mapping[str, FieldCodec], optional): A codec per field name that replaces
+                the built-in date, vector and JSON handling of that field, in both directions.
+                ``encode``/``decode`` are not called for ``None``. Defaults to None.
 
         Note:
             The model_class should be a Pydantic model that matches the database schema.
@@ -172,6 +173,44 @@ class BaseRepository(Generic[T, K]):
         self._date_fields = date_fields or set()
         self._array_fields = array_fields or set()
 
+        custom_codecs = dict(field_codecs or {})
+        self._custom_codec_fields: frozenset[str] = frozenset(custom_codecs)
+        self._codec_plan: list[tuple[str, FieldCodec]] = self._plan_codecs(custom_codecs)
+        # psycopg adapter mode: no JSON fields and auto-detection off. Every dict/list value that
+        # is not an array field (or has a custom codec) is wrapped in Json() on write, judged on
+        # the value as passed in.
+        self._adapter_codec: FieldCodec | None = (
+            PsycopgJsonCodec() if not self._json_fields and not self._auto_detect_json else None
+        )
+
+    def _plan_codecs(self, custom: dict[str, FieldCodec]) -> list[tuple[str, FieldCodec]]:
+        """Decide once which codec handles which field, in the order they run.
+
+        Phase by phase, as the conversion has always run: every date field, then every vector
+        field, then every JSON field, then the custom codecs. A field with a custom codec gets
+        only that codec.
+        """
+        date_codec = DateCodec(self.table_name)
+        vector_codec = VectorCodec(self.table_name)
+        plan: list[tuple[str, FieldCodec]] = []
+        plan += [(name, date_codec) for name in self._date_fields if name not in custom]
+        plan += [(name, vector_codec) for name in self._vector_fields if name not in custom]
+        plan += [
+            (
+                name,
+                JsonCodec(
+                    self.table_name,
+                    decimal_as=self._decimal_as,
+                    strict=self._strict_json_processing,
+                    accepts_str=name in self._str_json_fields,
+                ),
+            )
+            for name in self._json_fields
+            if name not in custom
+        ]
+        plan += list(custom.items())
+        return plan
+
     @property
     def json_fields(self) -> set[str]:
         """Get the set of field names that should be treated as JSON.
@@ -216,68 +255,21 @@ class BaseRepository(Generic[T, K]):
             ```
         """
         processed_data = data.copy()
+        for field_name, codec in self._codec_plan:
+            value = processed_data.get(field_name)
+            if value is not None:
+                processed_data[field_name] = codec.encode(field_name, value)
 
-        # Convert date fields to appropriate format if needed
-        for field_name in self._date_fields:
-            if field_name in data and data[field_name] is not None:
-                value = data[field_name]
-                if isinstance(value, date | datetime):
-                    # Convert date/datetime to ISO string for storage
-                    processed_data[field_name] = value.isoformat()
-                    logger.debug(
-                        f"Converted date field '{field_name}' from {type(value).__name__} to ISO string for {self.table_name}"
-                    )
-
-        # For custom JSON processing, determine which fields need processing
-        json_fields = self._json_fields
-
-        # If no JSON fields should be processed
-        if not json_fields:
-            # When auto_detect_json is False, wrap dict/list values with Json()
-            # unless they are explicitly marked as array fields
-            if not self._auto_detect_json:
-                for field_name, value in data.items():
-                    if value is not None and isinstance(value, dict | list):
-                        # Skip array fields - they should remain as PostgreSQL arrays
-                        if field_name in self._array_fields:
-                            logger.debug("Preserving array field '%s' for PostgreSQL array handling", field_name)
-                            continue
-                        # Wrap other dict/list fields with Json()
-                        processed_data[field_name] = Json(value)
-                        logger.debug("Wrapped field '%s' with Json() for PostgreSQL JSONB handling", field_name)
-            return processed_data
-
-        # Custom JSON processing mode - serialize to strings
-        for field_name in json_fields:
-            if field_name in processed_data and processed_data[field_name] is not None:
-                value = processed_data[field_name]
-                if isinstance(value, dict | list):
-                    try:
-                        # Serialize to JSON string for manual processing
-                        serialized = JSONHandler.serialize(value, decimal_as=self._decimal_as)
-                        processed_data[field_name] = serialized
-                        logger.debug("Serialized JSON field '%s' for %s", field_name, self.table_name)
-                    except Exception as e:
-                        raise JSONSerializationError(
-                            f"JSON serialization failed for field '{field_name}': {e}",
-                            field_name=field_name,
-                            value=value,
-                            original_error=e,
-                        ) from e
-                elif not isinstance(value, str) or field_name in self._str_json_fields:
-                    # Not dict/list: serialize it as a JSON value. A str is serialized only where
-                    # the field accepts str; elsewhere it is an already-serialized document.
-                    try:
-                        serialized = JSONHandler.serialize(value, decimal_as=self._decimal_as)
-                        processed_data[field_name] = serialized
-                        logger.debug("Serialized non-standard JSON field '%s' for %s", field_name, self.table_name)
-                    except Exception as e:
-                        raise JSONSerializationError(
-                            f"JSON serialization failed for field '{field_name}': {e}",
-                            field_name=field_name,
-                            value=value,
-                            original_error=e,
-                        ) from e
+        if self._adapter_codec is not None:
+            for field_name, value in data.items():
+                if value is None or field_name in self._custom_codec_fields:
+                    continue
+                if not isinstance(value, dict | list):
+                    continue
+                if field_name in self._array_fields:
+                    logger.debug("Preserving array field '%s' for PostgreSQL array handling", field_name)
+                    continue
+                processed_data[field_name] = self._adapter_codec.encode(field_name, value)
 
         return processed_data
 
@@ -311,81 +303,16 @@ class BaseRepository(Generic[T, K]):
             # processed["metadata"] is now {"key": "value"}
             ```
         """
-        # Check which fields should be processed
-        json_fields = self._json_fields
-
         processed_data = data.copy()
+        for field_name, codec in self._codec_plan:
+            value = processed_data.get(field_name)
+            if value is not None:
+                processed_data[field_name] = codec.decode(field_name, value)
 
-        # Convert date fields from database format to string if needed
-        for field_name in self._date_fields:
-            if field_name in processed_data and processed_data[field_name] is not None:
-                value = processed_data[field_name]
-                if isinstance(value, date | datetime):
-                    # Convert date/datetime to ISO string for Pydantic
-                    processed_data[field_name] = value.isoformat()
-                    logger.debug(
-                        f"Converted date field '{field_name}' from {type(value).__name__} to ISO string for {self.table_name}"
-                    )
-
-        # Parse vector fields from PostgreSQL string format to Python list[float]
-        # PostgreSQL returns vectors as strings like '[0.1,0.2,0.3]'
-        for field_name in self._vector_fields:
-            if field_name in processed_data and processed_data[field_name] is not None:
-                value = processed_data[field_name]
-                if isinstance(value, str):
-                    try:
-                        # Parse string to list[float] using json.loads()
-                        parsed_vector = JSONHandler.deserialize(value)
-                        if isinstance(parsed_vector, list):
-                            processed_data[field_name] = parsed_vector
-                            logger.debug(
-                                f"Parsed vector field '{field_name}' from string to list[float] for {self.table_name}"
-                            )
-                        else:
-                            logger.warning(
-                                f"Vector field '{field_name}' parsed to {type(parsed_vector).__name__} instead of list for {self.table_name}"
-                            )
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to parse vector field '{field_name}' in {self.table_name}: {e}. Keeping as string."
-                        )
-
-        # If no JSON fields should be processed, return the processed data
-        if not json_fields:
+        if not self._json_fields:
             logger.debug("No JSON fields configured for %s, skipping JSON postprocessing", self.table_name)
-            return processed_data
-
-        for field_name in self._json_fields:
-            if field_name in processed_data and processed_data[field_name] is not None:
-                serialized_value = processed_data[field_name]
-                if not isinstance(serialized_value, str | bytes):
-                    # psycopg always decodes json/jsonb columns to Python objects,
-                    # so a dict/list here is already deserialized
-                    continue
-                if isinstance(serialized_value, str) and field_name in self._str_json_fields:
-                    # A JSON string value psycopg has already decoded; decoding it again would turn
-                    # "123" into 123 or fail on "hello".
-                    continue
-                try:
-                    deserialized_value = JSONHandler.deserialize(serialized_value)
-                    processed_data[field_name] = deserialized_value
-                    logger.debug("Deserialized JSON field '%s' for %s", field_name, self.table_name)
-                except Exception as e:
-                    if self._strict_json_processing:
-                        raise JSONDeserializationError(
-                            f"JSON deserialization failed for field '{field_name}': {e}",
-                            field_name=field_name,
-                            json_data=str(serialized_value),
-                            original_error=e,
-                        ) from e
-                    else:
-                        logger.warning(
-                            "Failed to deserialize JSON field '%s' in %s: %s", field_name, self.table_name, e
-                        )
-                        # Keep the original value to prevent data loss
-                        logger.warning("Keeping original value for field '%s' in %s", field_name, self.table_name)
-
-        logger.debug("Postprocessed %s JSON fields for %s", len(self._json_fields), self.table_name)
+        else:
+            logger.debug("Postprocessed %s JSON fields for %s", len(self._json_fields), self.table_name)
         return processed_data
 
     def row_to_model(self, row: Mapping[str, Any]) -> T:

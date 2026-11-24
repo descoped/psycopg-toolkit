@@ -421,7 +421,7 @@ class TestPostprocessAlreadyDecodedJSON:
     def test_decoded_values_pass_through_in_strict_mode(self, strict_repo):
         row = {"name": "n", "value": 1, "metadata": {"a": 1}, "tags": ["x", "y"], "settings": None}
 
-        with patch("psycopg_toolkit.repositories.base.JSONHandler.deserialize") as deserialize:
+        with patch("psycopg_toolkit.utils.json_handler.JSONHandler.deserialize") as deserialize:
             result = strict_repo._postprocess_data(row)
 
         deserialize.assert_not_called()

@@ -15,6 +15,7 @@ from .exceptions import (
     RepositoryError,
 )
 from .repositories.base import BaseRepository
+from .repositories.codecs import FieldCodec
 from .utils.json_handler import CustomJSONEncoder, DecimalMode, JSONHandler
 from .utils.type_inspector import TypeInspector
 
@@ -28,6 +29,7 @@ __all__ = [
     "DatabasePoolError",
     "DatabaseSettings",
     "DecimalMode",
+    "FieldCodec",
     "InvalidDataError",
     "JSONDeserializationError",
     # JSON/JSONB Support

@@ -258,6 +258,39 @@ class UserRepository(BaseRepository[User, UUID]):  # Specify model and primary k
             return self.row_to_model(row) if row else None
 ```
 
+### Custom Field Codecs
+
+Each field's conversion to and from the database is done by a codec: dates, pgvector values and
+JSON have built-in ones. Pass `field_codecs` to replace the built-in handling of a field with your
+own. Any object with `encode(field_name, value)` and `decode(field_name, value)` satisfies the
+`FieldCodec` protocol; neither is called for `None`.
+
+```python
+from decimal import Decimal
+from psycopg_toolkit import BaseRepository, FieldCodec
+
+class CentsCodec:
+    """Store Decimal amounts as integer cents."""
+
+    def encode(self, field_name: str, value: Decimal) -> int:
+        return int(value * 100)
+
+    def decode(self, field_name: str, value: int) -> Decimal:
+        return Decimal(value) / 100
+
+class OrderRepository(BaseRepository[Order, UUID]):
+    def __init__(self, db_connection):
+        super().__init__(
+            db_connection=db_connection,
+            table_name="orders",
+            model_class=Order,
+            field_codecs={"amount": CentsCodec()},
+        )
+```
+
+A field with a custom codec gets only that codec: it is not also date-converted, JSON-serialized
+or wrapped in `Json()`. `row_to_model()` and every built-in method apply it.
+
 ### Batch Operations
 
 For efficient bulk operations:
