@@ -1,7 +1,6 @@
 """Type inspection utilities for detecting JSON fields in Pydantic models."""
 
 import logging
-import sys
 import types
 import typing
 from typing import Any, Union
@@ -124,7 +123,7 @@ class TypeInspector:
 
         # Check Union types (e.g., list[float] | None, Optional[list[float]])
         origin = typing.get_origin(annotation)
-        if origin is Union or (sys.version_info >= (3, 10) and isinstance(annotation, types.UnionType)):
+        if origin is Union or isinstance(annotation, types.UnionType):
             args = typing.get_args(annotation)
             # Check if any non-None type in the Union is list[float]
             for arg in args:
@@ -174,6 +173,21 @@ class TypeInspector:
         return TypeInspector._is_json_type(annotation)
 
     @staticmethod
+    def accepts_str(annotation: Any) -> bool:
+        """Whether a field annotation admits a plain ``str`` value (``str``, ``Any``, or a union with one).
+
+        For such JSON fields a ``str`` is a JSON string value, not a serialized document.
+        """
+        if annotation is str or annotation is Any or annotation is object:
+            return True
+        origin = typing.get_origin(annotation)
+        if origin is typing.Annotated:
+            return TypeInspector.accepts_str(typing.get_args(annotation)[0])
+        if origin is Union or isinstance(annotation, types.UnionType):
+            return any(TypeInspector.accepts_str(arg) for arg in typing.get_args(annotation))
+        return False
+
+    @staticmethod
     def _is_json_type(annotation: Any) -> bool:
         """Check if a type annotation represents a JSON-serializable type.
 
@@ -192,8 +206,10 @@ class TypeInspector:
         # A bare `dict` carries no type parameters but is still a JSON object.
         # A bare `list` is deliberately not detected: it has always been passed
         # through unchanged so psycopg can adapt it to a PostgreSQL array.
-        if annotation is dict:
+        if annotation is dict or annotation is typing.Dict:  # noqa: UP006 - the legacy alias, bare
             return True
+        if annotation is list or annotation is typing.List:  # noqa: UP006
+            return False
 
         # Nested Pydantic models are dumped to dicts by model_dump() and stored as JSON.
         # RootModel wrappers are excluded: they dump to their root value (str, list, ...),
@@ -207,10 +223,6 @@ class TypeInspector:
 
         # Check Union types
         if TypeInspector._check_union_type(annotation):
-            return True
-
-        # Check legacy typing module types
-        if TypeInspector._check_legacy_typing(annotation):
             return True
 
         # Check string annotations
@@ -228,25 +240,13 @@ class TypeInspector:
         origin = typing.get_origin(annotation)
 
         # Handle both typing.Union and types.UnionType (Python 3.10+ X | Y syntax)
-        if origin is Union or (sys.version_info >= (3, 10) and isinstance(annotation, types.UnionType)):
+        if origin is Union or isinstance(annotation, types.UnionType):
             args = typing.get_args(annotation)
             # Check if any non-None type in the Union is a JSON type
             for arg in args:
                 if arg is not type(None) and TypeInspector._is_json_type(arg):
                     return True
         return False
-
-    @staticmethod
-    def _check_legacy_typing(annotation: Any) -> bool:
-        """Check for legacy typing module types."""
-        # Check for __origin__ attribute (older Python versions)
-        if hasattr(annotation, "__origin__"):
-            origin = annotation.__origin__
-            if origin in (dict, list):
-                return True
-
-        # Handle generic aliases like typing.Dict, typing.List
-        return bool(hasattr(annotation, "_name") and annotation._name in ("Dict", "List"))
 
     @staticmethod
     def _check_string_annotation(annotation: Any) -> bool:
@@ -304,7 +304,7 @@ class TypeInspector:
             analysis["args"] = typing.get_args(annotation)
 
             # Check if Optional (Union with None)
-            if analysis["origin"] is Union or (sys.version_info >= (3, 10) and isinstance(annotation, types.UnionType)):
+            if analysis["origin"] is Union or isinstance(annotation, types.UnionType):
                 args = analysis["args"]
                 analysis["is_optional"] = type(None) in args
 

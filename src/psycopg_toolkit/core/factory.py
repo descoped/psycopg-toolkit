@@ -1,4 +1,8 @@
-"""Factory functions for creating core components without circular dependencies."""
+"""Factory for TransactionManager, kept for backward compatibility.
+
+``Database.get_transaction_manager()`` constructs the manager directly; there is no import cycle
+between ``database`` and ``transaction`` to break.
+"""
 
 from collections.abc import Callable
 
@@ -13,7 +17,7 @@ def create_transaction_manager(
 ) -> TransactionManager:
     """Create a TransactionManager instance.
 
-    This factory function breaks the circular dependency between Database and TransactionManager.
+    Equivalent to ``TransactionManager(pool, json_adapter_configurator)``.
 
     Args:
         pool: The connection pool to use
