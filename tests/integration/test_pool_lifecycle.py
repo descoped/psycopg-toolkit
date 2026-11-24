@@ -155,3 +155,19 @@ class TestFailureContract:
                 await unreachable.create_pool()
             with pytest.raises(DatabasePoolError):
                 await unreachable.get_pool()
+
+
+async def test_check_pool_health_true_on_live_pool(plain_db: Database) -> None:
+    assert await plain_db.check_pool_health() is True
+
+
+async def test_check_pool_health_false_when_pool_unavailable(plain_db: Database) -> None:
+    with patch.object(plain_db, "get_pool", side_effect=DatabasePoolError("Failed to create pool")):
+        assert await plain_db.check_pool_health() is False
+
+
+async def test_check_pool_health_false_when_query_fails(plain_db: Database) -> None:
+    pool = await plain_db.get_pool()
+    await pool.close()
+    with patch.object(plain_db, "get_pool", return_value=pool):
+        assert await plain_db.check_pool_health() is False
