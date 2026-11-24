@@ -160,23 +160,26 @@ typeCheckingMode = "standard"
 
 [tool.ty]
 # Astral's type checker: `uv run ty check` (a dev dependency, so the version is locked and
-# Renovate tracks it). It finds uv's `.venv` itself (VIRTUAL_ENV under `uv run`, else `.venv`
-# next to this file), so no interpreter path is set.
+# Renovate tracks it). Defaults that already fit and are therefore not set here:
+# - Python version: the minimum of project.requires-python (3.11).
+# - Environment: VIRTUAL_ENV under `uv run`, else `.venv` next to this file.
+# - First-party code: `src/` is found automatically.
+# - Any diagnostic, warnings included, fails the run (terminal.error-on-warning = true).
 #
-# This is a published library with a typed API (py.typed), so it is checked strictly:
-# every diagnostic fails, warnings included, and nothing is silenced per directory except
-# deliberate wrong-type usage in tests. Suppress a single line with `# ty: ignore[<rule>]`
-# and a comment saying why; never a bare `ty: ignore`.
-
-[tool.ty.environment]
-# ty defaults to the newest Python it knows; check against the supported floor instead.
-python-version = "3.11"
+# This is a published library with a typed API (py.typed), so it is checked strictly.
+# Suppress a single line with `# ty: ignore[<rule>]` and a comment saying why; never a bare
+# `ty: ignore`, and nothing per directory except deliberate wrong-type usage in tests.
 
 [tool.ty.src]
 include = ["src", "tests", "examples"]
 
-[tool.ty.terminal]
-error-on-warning = true
+[tool.ty.analysis]
+# Only `ty: ignore` silences ty. The `type: ignore[...]` comments here carry pyright/mypy
+# codes and must not hide ty diagnostics.
+respect-type-ignore-comments = false
+# Infer return types of unannotated functions (fixtures, test helpers, examples) instead of
+# treating them as Unknown, so their callers are checked too.
+return-type-inference = "always"
 
 [tool.ty.rules]
 # Opt-in rules that hold for this code base. tests/typing marks errors that MUST occur with
