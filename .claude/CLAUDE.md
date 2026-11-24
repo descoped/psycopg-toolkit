@@ -441,6 +441,9 @@ psycopg-toolkit/
 
 ## Recent Changes
 
+### v0.5.1
+- `create_pool` closes the pool when cancelled during `pool.open()` (no leaked pool workers/connections)
+
 ### v0.5.0
 - Decimal in JSON fields defaults to a lossless string (`decimal_as="str"`); `"float"` is the opt-in
 - Unreachable database raises `DatabaseConnectionError` (not `RetryError`/`DatabasePoolError`); `DatabaseSettings.connect_retries` (default 5)

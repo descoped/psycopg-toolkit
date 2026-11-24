@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -241,3 +242,51 @@ async def test_cleanup_error(database, mock_pool):
     with pytest.raises(DatabasePoolError):
         await database.cleanup()
     assert database._pool is None
+
+
+@pytest.mark.asyncio
+async def test_create_pool_cancelled_during_open_closes_pool(database):
+    """A cancelled create_pool() must not leave the half-opened pool running."""
+    opening = asyncio.Event()
+
+    async def slow_open():
+        opening.set()
+        await asyncio.sleep(10)
+
+    pool = AsyncMock()
+    pool.open = slow_open
+    with (
+        patch.object(Database, "ping_postgres", new=AsyncMock(return_value=True)),
+        patch("psycopg_toolkit.core.database.AsyncConnectionPool", return_value=pool),
+    ):
+        task = asyncio.create_task(database.create_pool())
+        await opening.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    pool.close.assert_awaited_once()
+    assert database._pool is None
+
+
+@pytest.mark.asyncio
+async def test_get_pool_cancelled_during_open_allows_a_retry(database):
+    """After a cancelled first get_pool(), the lock is free and a new pool is created."""
+    first = AsyncMock()
+
+    async def never_open():
+        await asyncio.sleep(10)
+
+    first.open = never_open
+    second = AsyncMock()
+    second.closed = False
+    with (
+        patch.object(Database, "ping_postgres", new=AsyncMock(return_value=True)),
+        patch("psycopg_toolkit.core.database.AsyncConnectionPool", side_effect=[first, second]),
+    ):
+        task = asyncio.create_task(database.get_pool())
+        await asyncio.sleep(0.01)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert await asyncio.wait_for(database.get_pool(), timeout=1) is second
+    first.close.assert_awaited_once()
