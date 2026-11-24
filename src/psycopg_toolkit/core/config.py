@@ -29,6 +29,8 @@ class DatabaseSettings:
             library's JSON loads/dumps, overriding loaders registered globally with
             ``psycopg.types.json.set_json_loads`` (default: True). With False the connection keeps
             its own loaders. psycopg decodes json/jsonb to Python objects either way.
+        connect_retries (int): Connection attempts ``ping_postgres`` makes, with exponential backoff
+            (4 to 10 seconds) between them, before it raises DatabaseConnectionError (default: 5).
     """
 
     host: str
@@ -42,6 +44,7 @@ class DatabaseSettings:
     connection_timeout: float = 5.0
     statement_timeout: float | None = None
     enable_json_adapters: bool = True
+    connect_retries: int = 5
 
     @property
     def connection_string(self) -> str:

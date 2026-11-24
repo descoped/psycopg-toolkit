@@ -51,10 +51,16 @@ class TestCustomJSONEncoder:
         assert isinstance(result, str)
         assert result == "2024-01-15"
 
-    def test_decimal_serialization(self):
-        """Test Decimal serialization to float."""
-        test_decimal = Decimal("123.45")
+    def test_decimal_serialization_default_is_lossless_str(self):
+        """Decimal is written as a string by default, keeping every digit."""
         encoder = CustomJSONEncoder()
+        assert encoder.default(Decimal("123.45")) == "123.45"
+        assert encoder.default(Decimal("123.456789012345678901")) == "123.456789012345678901"
+
+    def test_decimal_serialization_float_mode(self):
+        """Test Decimal serialization to float (decimal_as="float")."""
+        test_decimal = Decimal("123.45")
+        encoder = CustomJSONEncoder(decimal_as="float")
         result = encoder.default(test_decimal)
         assert result == 123.45
         assert isinstance(result, float)
@@ -125,7 +131,7 @@ class TestCustomJSONEncoder:
         assert isinstance(parsed["uuid"], str)
         assert isinstance(parsed["timestamp"], str)
         assert isinstance(parsed["date"], str)
-        assert isinstance(parsed["price"], float)
+        assert parsed["price"] == "99.99"  # Decimal is a lossless string by default
         assert isinstance(parsed["tags"], list)
         assert isinstance(parsed["model"], dict)
 
@@ -152,7 +158,7 @@ class TestCustomJSONEncoder:
         assert parsed["level1"]["level2"]["uuid"] == str(test_uuid)
         assert parsed["level1"]["level2"]["timestamp"] == "2024-01-15T12:00:00"
         assert len(parsed["level1"]["level2"]["nested_list"]) == 2
-        assert parsed["level1"]["level2"]["nested_list"][0]["price"] == 10.5
+        assert parsed["level1"]["level2"]["nested_list"][0]["price"] == "10.50"
         assert isinstance(parsed["level1"]["level2"]["nested_list"][0]["tags"], list)
 
     def test_empty_collections(self):
@@ -166,20 +172,13 @@ class TestCustomJSONEncoder:
         assert isinstance(result, list)
 
     def test_special_decimal_values(self):
-        """Test serialization of special Decimal values."""
-        encoder = CustomJSONEncoder()
+        """Test serialization of special Decimal values, in both modes."""
+        as_str = CustomJSONEncoder()
+        as_float = CustomJSONEncoder(decimal_as="float")
 
-        # Zero
-        zero_decimal = Decimal("0")
-        assert encoder.default(zero_decimal) == 0.0
-
-        # Negative
-        negative_decimal = Decimal("-123.45")
-        assert encoder.default(negative_decimal) == -123.45
-
-        # Very small
-        small_decimal = Decimal("0.0001")
-        assert encoder.default(small_decimal) == 0.0001
+        for value, text, number in [("0", "0", 0.0), ("-123.45", "-123.45", -123.45), ("0.0001", "0.0001", 0.0001)]:
+            assert as_str.default(Decimal(value)) == text
+            assert as_float.default(Decimal(value)) == number
 
     def test_datetime_with_timezone_info(self):
         """Test datetime serialization preserves timezone info."""

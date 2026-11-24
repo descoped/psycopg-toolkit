@@ -79,7 +79,7 @@ class BaseRepository(Generic[T, K]):
         array_fields: set[str] | None = None,
         vector_fields: set[str] | None = None,
         auto_detect_vector: bool = True,
-        decimal_as: DecimalMode = "float",
+        decimal_as: DecimalMode = "str",
     ):
         """
         Initialize the base repository.
@@ -109,9 +109,9 @@ class BaseRepository(Generic[T, K]):
                 (list[float]) from Pydantic type hints. Ignored if vector_fields is provided.
                 Defaults to True.
             decimal_as (DecimalMode, optional): How Decimal values inside JSON fields are
-                written. "float" (default) may lose digits; "str" keeps every digit by writing
-                the value as a JSON string, which reads back as ``str`` (convert with
-                ``Decimal(value)``). Applies to the toolkit's own JSON serialization, not to
+                written. "str" (default since 0.5.0) keeps every digit by writing the value as a
+                JSON string, which reads back as ``str`` (convert with ``Decimal(value)``);
+                "float" writes a JSON number, which may lose digits. Applies to the toolkit's own JSON serialization, not to
                 values wrapped with ``Json()`` when ``auto_detect_json=False``.
 
         Note:
@@ -485,9 +485,8 @@ class BaseRepository(Generic[T, K]):
             List[T]: List of created model instances with database-generated fields.
 
         Raises:
-            OperationError: If the database operation fails, or if JSON serialization fails
-                for any record. Unlike ``create``, a serialization failure is not raised
-                directly: it is wrapped, with the JSONSerializationError as ``__cause__``.
+            OperationError: If the database operation fails.
+            JSONSerializationError: If JSON serialization fails for any record.
 
         Example:
             ```python
@@ -502,7 +501,7 @@ class BaseRepository(Generic[T, K]):
             insertion and deserialized when returning the created records.
         """
         all_results = []
-        async with self._errors("create_bulk", "Failed to create records in bulk"):
+        async with self._errors("create_bulk", "Failed to create records in bulk", (JSONProcessingError,)):
             async with self.db_connection.transaction():
                 for i in range(0, len(items), batch_size):
                     batch = items[i : i + batch_size]

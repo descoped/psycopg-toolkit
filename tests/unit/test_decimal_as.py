@@ -1,7 +1,7 @@
 """Decimal serialization mode for JSON fields (review finding M4).
 
-The default stays ``float`` (pinned here and in test_custom_json_encoder.py); ``decimal_as="str"``
-is an opt-in that keeps every digit by writing the Decimal as a JSON string.
+The default is ``"str"`` (since 0.5.0): every digit is kept by writing the Decimal as a JSON string.
+``decimal_as="float"`` opts back into the previous, lossy float output.
 """
 
 import json
@@ -22,16 +22,28 @@ class Priced(BaseModel):
     meta: dict[str, Any]
 
 
-class TestDefaultIsFloat:
-    def test_encoder_default_is_float(self) -> None:
-        assert json.loads(json.dumps({"p": PRECISE}, cls=CustomJSONEncoder)) == {"p": float(PRECISE)}
+class TestDefaultIsStr:
+    def test_encoder_default_is_str(self) -> None:
+        assert json.loads(json.dumps({"p": PRECISE}, cls=CustomJSONEncoder)) == {"p": "123.456789012345678901"}
 
-    def test_handler_default_is_float_and_lossy(self) -> None:
-        out = JSONHandler.serialize({"p": PRECISE})
-        assert out == '{"p": 123.45678901234568}'
+    def test_handler_default_is_str(self) -> None:
+        assert JSONHandler.serialize({"p": PRECISE}) == '{"p": "123.456789012345678901"}'
 
-    def test_repository_default_is_float(self) -> None:
+    def test_repository_default_is_str(self) -> None:
         repo = BaseRepository(None, "t", Priced)  # type: ignore[arg-type]
+        assert repo._preprocess_data({"meta": {"p": Decimal("1.10")}})["meta"] == '{"p": "1.10"}'
+
+
+class TestDecimalAsFloat:
+    def test_encoder_float_is_lossy(self) -> None:
+        out = json.dumps({"p": PRECISE}, cls=CustomJSONEncoder, decimal_as="float")
+        assert json.loads(out) == {"p": float(PRECISE)}
+
+    def test_handler_float(self) -> None:
+        assert JSONHandler.serialize({"p": PRECISE}, decimal_as="float") == '{"p": 123.45678901234568}'
+
+    def test_repository_float(self) -> None:
+        repo = BaseRepository(None, "t", Priced, decimal_as="float")  # type: ignore[arg-type]
         assert repo._preprocess_data({"meta": {"p": Decimal("1.10")}})["meta"] == '{"p": 1.1}'
 
 

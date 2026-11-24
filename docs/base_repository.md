@@ -188,7 +188,7 @@ What each method raises:
 | Exception | When |
 |---|---|
 | `RecordNotFoundError` | `get_by_id`, `update` or `delete` find no row with that id |
-| `JSONSerializationError` | a JSON field cannot be serialized (`create`, `update`) |
+| `JSONSerializationError` | a JSON field cannot be serialized (`create`, `create_bulk`, `update`) |
 | `JSONDeserializationError` | a JSON field cannot be decoded and `strict_json_processing=True` |
 | `OperationError` | any other failure; the original exception is `__cause__` |
 

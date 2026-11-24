@@ -10,7 +10,7 @@ from uuid import UUID
 logger = logging.getLogger(__name__)
 
 DecimalMode = Literal["float", "str"]
-"""How Decimal values are written to JSON: ``"float"`` (default, may lose digits) or ``"str"`` (lossless)."""
+"""How Decimal values are written to JSON: ``"str"`` (default, lossless) or ``"float"`` (may lose digits)."""
 
 
 def check_decimal_mode(decimal_as: str) -> DecimalMode:
@@ -26,12 +26,12 @@ class CustomJSONEncoder(json.JSONEncoder):
     Handles serialization of UUID, datetime, date, time, Decimal, set, frozenset, and Pydantic models
     that are commonly used in applications but not natively JSON serializable.
 
-    Decimal is written as a float by default, which can lose digits (JSON numbers decode to float).
-    Pass ``decimal_as="str"`` to write it as a string that keeps every digit, e.g.
-    ``json.dumps(data, cls=CustomJSONEncoder, decimal_as="str")``.
+    Decimal is written as a string by default, which keeps every digit (read it back with
+    ``Decimal(value)``). Pass ``decimal_as="float"`` for a JSON number instead, which can lose digits
+    because JSON numbers decode to float, e.g. ``json.dumps(data, cls=CustomJSONEncoder, decimal_as="float")``.
     """
 
-    def __init__(self, *args: Any, decimal_as: DecimalMode = "float", **kwargs: Any) -> None:
+    def __init__(self, *args: Any, decimal_as: DecimalMode = "str", **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.decimal_as = check_decimal_mode(decimal_as)
 
@@ -72,12 +72,12 @@ class JSONHandler:
     """
 
     @staticmethod
-    def serialize(data: Any, *, decimal_as: DecimalMode = "float") -> str:
+    def serialize(data: Any, *, decimal_as: DecimalMode = "str") -> str:
         """Serialize Python objects to JSON string.
 
         Args:
             data: The Python object to serialize
-            decimal_as: How to write Decimal values: ``"float"`` (default) or ``"str"`` (lossless)
+            decimal_as: How to write Decimal values: ``"str"`` (default, lossless) or ``"float"``
 
         Returns:
             JSON string representation of the data

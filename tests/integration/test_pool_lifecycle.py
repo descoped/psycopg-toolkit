@@ -6,9 +6,8 @@ from unittest.mock import patch
 
 import pytest
 from psycopg import AsyncConnection, OperationalError
-from tenacity import RetryError
 
-from psycopg_toolkit import Database, DatabasePoolError, DatabaseSettings
+from psycopg_toolkit import Database, DatabaseConnectionError, DatabasePoolError, DatabaseSettings
 
 
 def _settings(base: DatabaseSettings, **overrides: object) -> DatabaseSettings:
@@ -136,24 +135,24 @@ class TestFailureContract:
     def unreachable(self) -> Database:
         return Database(DatabaseSettings(host="127.0.0.1", port=1, dbname="d", user="u", password="p"))
 
-    async def test_ping_raises_retry_error(self, unreachable: Database) -> None:
+    async def test_ping_raises_connection_error(self, unreachable: Database) -> None:
         with (
             patch("psycopg_toolkit.core.database.AsyncConnection.connect", side_effect=OperationalError("down")),
             patch("tenacity.nap.time.sleep"),
             patch("asyncio.sleep"),
             patch("tenacity.wait.wait_exponential.__call__", return_value=0),
-            pytest.raises(RetryError),
+            pytest.raises(DatabaseConnectionError),
         ):
             await unreachable.ping_postgres()
 
-    async def test_create_and_get_pool_raise_pool_error(self, unreachable: Database) -> None:
+    async def test_create_and_get_pool_raise_connection_error(self, unreachable: Database) -> None:
         with (
             patch("psycopg_toolkit.core.database.AsyncConnection.connect", side_effect=OperationalError("down")),
             patch("tenacity.wait.wait_exponential.__call__", return_value=0),
         ):
-            with pytest.raises(DatabasePoolError):
+            with pytest.raises(DatabaseConnectionError):
                 await unreachable.create_pool()
-            with pytest.raises(DatabasePoolError):
+            with pytest.raises(DatabaseConnectionError):
                 await unreachable.get_pool()
 
 

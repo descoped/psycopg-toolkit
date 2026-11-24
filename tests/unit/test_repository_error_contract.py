@@ -114,13 +114,11 @@ class TestErrorContract:
         with pytest.raises(JSONSerializationError):
             await make_repo().update(1, {"meta": {"x": NotJSON()}})
 
-    async def test_create_bulk_wraps_serialization_errors(self) -> None:
-        """Current behaviour (review finding M6): create_bulk wraps instead of passing through."""
-        with pytest.raises(OperationError) as excinfo:
+    async def test_create_bulk_passes_serialization_errors_through(self) -> None:
+        """M6: like create(), not wrapped in OperationError."""
+        with pytest.raises(JSONSerializationError) as excinfo:
             await make_repo().create_bulk([unserializable()])
-        assert type(excinfo.value) is OperationError
-        assert str(excinfo.value).startswith("Failed to create records in bulk: JSON serialization failed")
-        assert isinstance(excinfo.value.__cause__, JSONSerializationError)
+        assert excinfo.value.field_name == "meta"
 
     @pytest.mark.parametrize(
         ("name", "call", "kwargs"),

@@ -207,7 +207,7 @@ class TestBaseRepositoryDataProcessing:
         metadata_dict = json.loads(processed["metadata"])
         assert metadata_dict["uuid"] == str(test_uuid)
         assert metadata_dict["timestamp"] == test_datetime.isoformat()
-        assert metadata_dict["amount"] == float(test_decimal)
+        assert metadata_dict["amount"] == str(test_decimal)
         assert metadata_dict["nested"]["deep"]["value"] == "test"
 
     def test_preprocess_data_serialization_error(self, json_repo):
