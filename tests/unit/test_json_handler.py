@@ -55,7 +55,7 @@ class TestJSONHandler:
         parsed = json.loads(result)
         assert parsed["user"]["id"] == str(test_uuid)
         assert parsed["user"]["created"] == test_datetime.isoformat()
-        assert parsed["user"]["balance"] == 100.5
+        assert parsed["user"]["balance"] == "100.50"
         assert isinstance(parsed["user"]["tags"], list)
         assert set(parsed["user"]["tags"]) == {"admin", "user"}
 
@@ -196,7 +196,7 @@ class TestJSONHandler:
         # These types get converted during serialization
         assert deserialized["uuid"] == str(test_uuid)
         assert deserialized["datetime"] == test_datetime.isoformat()
-        assert deserialized["decimal"] == 123.45
+        assert deserialized["decimal"] == "123.45"
         assert set(deserialized["set"]) == {"a", "b", "c"}
         assert deserialized["date"] == "2024-01-15"
 
@@ -308,5 +308,5 @@ class TestJSONHandler:
         assert deserialized["large_int"] == 999999999999999999
         assert deserialized["small_float"] == 0.000001
         assert deserialized["negative_float"] == -123.456
-        assert deserialized["decimal_zero"] == 0.0
-        assert deserialized["decimal_negative"] == -123.45
+        assert deserialized["decimal_zero"] == "0"
+        assert deserialized["decimal_negative"] == "-123.45"

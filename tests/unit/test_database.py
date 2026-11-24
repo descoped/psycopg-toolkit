@@ -3,9 +3,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from psycopg.errors import OperationalError
 from psycopg_pool import AsyncConnectionPool
-from tenacity import RetryError
 
-from psycopg_toolkit import Database, DatabasePoolError, DatabaseSettings
+from psycopg_toolkit import Database, DatabaseConnectionError, DatabasePoolError, DatabaseSettings
 
 
 @pytest.fixture
@@ -73,14 +72,63 @@ async def test_ping_postgres_success(database):
 
 @pytest.mark.asyncio
 async def test_ping_postgres_failure(database):
+    """M3: after the retries, the documented DatabaseConnectionError, not tenacity's RetryError."""
+    error = OperationalError("Connection failed")
     with (
-        patch(
-            "psycopg_toolkit.core.database.AsyncConnection.connect", side_effect=OperationalError("Connection failed")
-        ),
+        patch("psycopg_toolkit.core.database.AsyncConnection.connect", side_effect=error) as connect,
         patch("tenacity.wait.wait_exponential.__call__", return_value=0),
-        pytest.raises(RetryError),
+        pytest.raises(DatabaseConnectionError) as excinfo,
     ):
         await database.ping_postgres()
+    assert type(excinfo.value) is DatabaseConnectionError
+    assert excinfo.value.original_error is error
+    assert excinfo.value.__cause__ is error
+    assert connect.call_count == 5
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("retries", [1, 3])
+async def test_ping_postgres_retries_from_settings(retries):
+    db = Database(DatabaseSettings(host="h", port=5432, dbname="d", user="u", password="p", connect_retries=retries))
+    with (
+        patch("psycopg_toolkit.core.database.AsyncConnection.connect", side_effect=OperationalError("x")) as connect,
+        patch("tenacity.wait.wait_exponential.__call__", return_value=0),
+        pytest.raises(DatabaseConnectionError),
+    ):
+        await db.ping_postgres()
+    assert connect.call_count == retries
+
+
+def test_connect_retries_must_be_positive():
+    with pytest.raises(ValueError, match="connect_retries"):
+        Database(DatabaseSettings(host="h", port=5432, dbname="d", user="u", password="p", connect_retries=0))
+
+
+@pytest.mark.asyncio
+async def test_create_pool_unreachable_raises_connection_error(database):
+    with (
+        patch("psycopg_toolkit.core.database.AsyncConnection.connect", side_effect=OperationalError("down")),
+        patch("tenacity.wait.wait_exponential.__call__", return_value=0),
+        pytest.raises(DatabaseConnectionError),
+    ):
+        await database.create_pool()
+
+
+@pytest.mark.asyncio
+async def test_create_pool_open_failure_is_one_pool_error(database):
+    """M3: 'Failed to open pool' is raised as-is, no longer wrapped in a second DatabasePoolError."""
+    cause = RuntimeError("open failed")
+    pool = AsyncMock()
+    pool.open = AsyncMock(side_effect=cause)
+    with (
+        patch.object(Database, "ping_postgres", new=AsyncMock(return_value=True)),
+        patch("psycopg_toolkit.core.database.AsyncConnectionPool", return_value=pool),
+        pytest.raises(DatabasePoolError) as excinfo,
+    ):
+        await database.create_pool()
+    assert str(excinfo.value) == "Failed to open pool"
+    assert excinfo.value.__cause__ is cause
+    pool.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio

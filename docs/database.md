@@ -87,7 +87,7 @@ The connection pool provides:
 - Connection validation
 - Pool size management
 - Connection timeouts
-- Automatic retry with exponential backoff
+- Automatic retry with exponential backoff (`DatabaseSettings.connect_retries`, default 5 attempts)
 
 ### Health Monitoring
 
@@ -131,12 +131,12 @@ try:
         # Database operations
         pass
 except DatabaseConnectionError as e:
+    # The database could not be reached after connect_retries attempts
     print(f"Connection error: {e}")
     print(f"Original error: {e.original_error}")
 except DatabasePoolError as e:
+    # The pool could not be created or opened; the cause is e.__cause__
     print(f"Pool error: {e}")
-except DatabaseNotAvailable as e:
-    print(f"Database not available: {e}")
 ```
 
 ## Best Practices

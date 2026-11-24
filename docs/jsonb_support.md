@@ -205,10 +205,12 @@ The `date_fields` parameter:
 
 ### Decimal Values in JSON Fields
 
-JSON numbers decode to `float`, so by default a `Decimal` inside a JSON field is written as a float
-and can lose digits (`Decimal("123.456789012345678901")` reads back as `123.45678901234568`). Pass
-`decimal_as="str"` to keep every digit: the value is stored as a JSON string and reads back as
-`str`, which you convert with `Decimal(value)`.
+A `Decimal` inside a JSON field is written as a JSON string by default (since 0.5.0), so every digit
+is kept: `Decimal("123.456789012345678901")` is stored as `"123.456789012345678901"` and reads back
+as that `str`, which you convert with `Decimal(value)`.
+
+`decimal_as="float"` writes a JSON number instead, as versions before 0.5.0 did. JSON numbers decode
+to `float`, so digits can be lost (the value above reads back as `123.45678901234568`).
 
 ```python
 class OrderRepository(BaseRepository[Order, int]):
@@ -217,12 +219,16 @@ class OrderRepository(BaseRepository[Order, int]):
             db_connection=db_connection,
             table_name="orders",
             model_class=Order,
-            decimal_as="str",  # default "float"
+            decimal_as="float",  # default "str"
         )
 ```
 
-The same option exists on `JSONHandler.serialize(data, decimal_as="str")` and
-`CustomJSONEncoder(decimal_as="str")`. It applies to the toolkit's own JSON serialization, not to
+**Upgrading from 0.4.x:** rows written before 0.5.0 hold Decimals as JSON numbers, new rows hold
+strings, so reads return `float` for old rows and `str` for new ones. Either pass
+`decimal_as="float"` to keep writing numbers, or read with `Decimal(str(value))`, which handles both.
+
+The same option exists on `JSONHandler.serialize(data, decimal_as=...)` and
+`CustomJSONEncoder(decimal_as=...)`. It applies to the toolkit's own JSON serialization, not to
 values wrapped with psycopg's `Json()` when `auto_detect_json=False`.
 
 ## Configuration Approaches

@@ -8,7 +8,7 @@ from typing import cast
 from psycopg import AsyncConnection, sql
 from psycopg.types import json
 from psycopg_pool import AsyncConnectionPool
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 
 from ..exceptions import DatabaseConnectionError, DatabasePoolError
 from .config import DatabaseSettings
@@ -42,6 +42,10 @@ class Database:
         """
         if not settings.host or not settings.dbname or not settings.user:
             raise ValueError("Invalid database settings: host, dbname, and user are required")
+        if settings.connect_retries < 1:
+            raise ValueError(
+                f"Invalid database settings: connect_retries must be at least 1, got {settings.connect_retries}"
+            )
 
         self._settings = settings
         self._pool: AsyncConnectionPool | None = None
@@ -84,27 +88,40 @@ class Database:
             await connection.execute(sql.SQL("SET statement_timeout = {}").format(sql.Literal(timeout_ms)))
             await connection.commit()
 
-    @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=4, max=10))
     async def ping_postgres(self) -> bool:
-        """Test database connectivity with exponential backoff retry.
+        """Test database connectivity, retrying with exponential backoff.
+
+        Makes up to ``settings.connect_retries`` attempts (default 5), waiting 4 to 10 seconds
+        between them.
 
         Returns:
             bool: True if connection successful
 
         Raises:
-            tenacity.RetryError: If all 5 attempts fail. The last attempt's
-                DatabaseConnectionError is available via ``err.last_attempt.exception()``.
+            DatabaseConnectionError: If every attempt fails. The last driver error is
+                ``original_error`` and ``__cause__``.
         """
+        retrying = AsyncRetrying(
+            stop=stop_after_attempt(self._settings.connect_retries),
+            wait=wait_exponential(multiplier=1, min=4, max=10),
+            reraise=True,
+        )
+        async for attempt in retrying:
+            with attempt:
+                await self._connect_once()
+        return True
+
+    async def _connect_once(self) -> None:
+        """One connection attempt; raises DatabaseConnectionError on failure."""
         try:
-            logger.info(f"Pinging PostgreSQL at {self._settings.host}")
+            logger.info("Pinging PostgreSQL at %s", self._settings.host)
             conn = await AsyncConnection.connect(
                 self._settings.get_connection_string(self._settings.connection_timeout)
             )
             await conn.close()
             logger.info("Successfully connected to PostgreSQL")
-            return True
         except Exception as e:
-            logger.error(f"Could not connect to PostgreSQL: {e}")
+            logger.warning("Could not connect to PostgreSQL: %s", e)
             raise DatabaseConnectionError("Failed to connect to database", e) from e
 
     async def create_pool(self) -> AsyncConnectionPool:
@@ -114,12 +131,12 @@ class Database:
             AsyncConnectionPool: Configured connection pool
 
         Raises:
-            DatabasePoolError: If the database cannot be reached (ping retries exhausted)
-                or the pool cannot be created or opened. The cause is chained.
+            DatabaseConnectionError: If the database cannot be reached (connection retries exhausted).
+            DatabasePoolError: If the pool cannot be created or opened. The cause is chained.
         """
-        try:
-            await self.ping_postgres()
+        await self.ping_postgres()
 
+        try:
             logger.info("Initializing connection pool")
             # cast: psycopg_pool cannot infer the connection type parameter from these arguments
             pool = cast(
@@ -133,18 +150,19 @@ class Database:
                     open=False,
                 ),
             )
-
-            try:
-                await pool.open()
-                self._pool = pool
-            except Exception as e:
-                await pool.close()
-                raise DatabasePoolError("Failed to open pool") from e
-
-            return pool
         except Exception as e:
-            logger.error(f"Could not create connection pool: {e}")
+            logger.error("Could not create connection pool: %s", e)
             raise DatabasePoolError("Failed to create pool") from e
+
+        try:
+            await pool.open()
+        except Exception as e:
+            logger.error("Could not open connection pool: %s", e)
+            await pool.close()
+            raise DatabasePoolError("Failed to open pool") from e
+
+        self._pool = pool
+        return pool
 
     async def get_pool(self) -> AsyncConnectionPool:
         """Get existing pool or create new one.
@@ -155,6 +173,7 @@ class Database:
         Safe to call concurrently: only one pool is ever created.
 
         Raises:
+            DatabaseConnectionError: If the database cannot be reached
             DatabasePoolError: If pool creation fails
         """
         if self._pool is None or self._pool.closed:
@@ -179,6 +198,7 @@ class Database:
             AsyncConnection: Database connection, idle (no transaction open)
 
         Raises:
+            DatabaseConnectionError: If the database cannot be reached
             DatabasePoolError: If the pool cannot be created
             psycopg_pool.PoolTimeout: If no connection becomes available within pool_timeout
         """

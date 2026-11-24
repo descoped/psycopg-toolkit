@@ -1,4 +1,7 @@
-"""decimal_as="str" keeps Decimal precision through a real JSONB round trip (review finding M4)."""
+"""Decimal in JSON fields through a real JSONB round trip (review finding M4).
+
+The default "str" keeps every digit; decimal_as="float" is the lossy opt-in.
+"""
 
 from decimal import Decimal
 from typing import Any
@@ -20,9 +23,18 @@ async def make_table(conn: AsyncConnection) -> None:
     await conn.execute("CREATE TEMP TABLE priced (id int PRIMARY KEY, meta jsonb NOT NULL) ON COMMIT DROP")
 
 
-async def test_default_float_loses_digits(jsonb_tables: AsyncConnection) -> None:
+async def test_default_keeps_every_digit(jsonb_tables: AsyncConnection) -> None:
     await make_table(jsonb_tables)
     repo = BaseRepository(jsonb_tables, "priced", Priced)
+    await repo.create(Priced(id=1, meta={"p": PRECISE}))
+    got = await repo.get_by_id(1)
+    assert got.meta["p"] == "123.456789012345678901"
+    assert Decimal(got.meta["p"]) == PRECISE
+
+
+async def test_float_opt_in_loses_digits(jsonb_tables: AsyncConnection) -> None:
+    await make_table(jsonb_tables)
+    repo = BaseRepository(jsonb_tables, "priced", Priced, decimal_as="float")
     await repo.create(Priced(id=1, meta={"p": PRECISE}))
     got = await repo.get_by_id(1)
     assert got.meta["p"] == float(PRECISE)
