@@ -441,6 +441,19 @@ psycopg-toolkit/
 
 ## Recent Changes
 
+### v0.5.0
+- Decimal in JSON fields defaults to a lossless string (`decimal_as="str"`); `"float"` is the opt-in
+- Unreachable database raises `DatabaseConnectionError` (not `RetryError`/`DatabasePoolError`); `DatabaseSettings.connect_retries` (default 5)
+- `create_bulk` raises `JSONSerializationError` directly, like `create`
+- Public `BaseRepository.row_to_model(row)` for custom queries (instead of `_postprocess_data`)
+- Per-field codecs (`repositories/codecs.py`); `field_codecs={name: FieldCodec}` replaces a field's built-in handling
+- `str` values in JSON fields whose type accepts `str` round-trip as JSON strings
+- `connect_timeout` rounds up (never 0); bare `typing.List` is not JSON; `to_dict()` uses `asdict()`
+
+### v0.4.0
+- `py.typed` shipped; `T` bound to `BaseModel`, `get_by_id -> T`
+- Opt-in `decimal_as`; one error/logging path for CRUD methods; SQL identifier quoting; pool and transaction fixes
+
 ### pgvector Support (v0.3.1)
 - **Native pgvector support** - Auto-detect `list[float]` fields for vector columns
 - **No external dependencies required** - Removed pgvector-python library
