@@ -109,3 +109,39 @@ def test_adapter_mode_still_converts_date_fields() -> None:
     assert out["at"] == "2020-01-02T03:04:05"
     assert isinstance(out["data"], Json) and out["data"].obj == {"a": 1}
     assert out["tags"] == ["x"]
+
+
+class TestBuiltinCodecs:
+    """Branches of the built-in codecs that the repository-level tests do not reach."""
+
+    def test_vector_codec(self, caplog: pytest.LogCaptureFixture) -> None:
+        import logging
+
+        from psycopg_toolkit.repositories.codecs import VectorCodec
+
+        codec = VectorCodec("t")
+        caplog.set_level(logging.DEBUG, logger="psycopg_toolkit")
+        assert codec.encode("v", [0.1]) == [0.1]
+        assert codec.decode("v", [0.1, 0.2]) == [0.1, 0.2]  # already a list
+        assert codec.decode("v", "[0.1, 0.2]") == [0.1, 0.2]
+        assert codec.decode("v", "not json") == "not json"
+        assert codec.decode("v", '{"a": 1}') == '{"a": 1}'
+        messages = [r.getMessage() for r in caplog.records]
+        assert "Parsed vector field 'v' from string to list[float] for t" in messages
+        assert any(
+            m.startswith("Failed to parse vector field 'v' in t:") and m.endswith("Keeping as string.")
+            for m in messages
+        )
+        assert "Vector field 'v' parsed to dict instead of list for t" in messages
+        assert {r.name for r in caplog.records} == {"psycopg_toolkit.repositories.base"}
+
+    def test_psycopg_json_codec(self) -> None:
+        from psycopg.types.json import Json
+
+        from psycopg_toolkit.repositories.codecs import PsycopgJsonCodec
+
+        codec = PsycopgJsonCodec()
+        wrapped = codec.encode("f", {"a": 1})
+        assert isinstance(wrapped, Json) and wrapped.obj == {"a": 1}
+        assert codec.encode("f", "text") == "text"
+        assert codec.decode("f", {"a": 1}) == {"a": 1}
