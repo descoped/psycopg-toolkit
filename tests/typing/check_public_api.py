@@ -15,7 +15,7 @@ from psycopg import AsyncConnection
 from psycopg.sql import Composed
 from pydantic import BaseModel
 
-from psycopg_toolkit import BaseRepository, DecimalMode, JSONHandler
+from psycopg_toolkit import BaseRepository, DecimalMode, FieldCodec, JSONHandler
 from psycopg_toolkit.utils import PsycopgHelper
 
 
@@ -50,6 +50,25 @@ async def repository_types(conn: AsyncConnection, user_id: UUID, user: User) -> 
     # decimal_as only accepts the DecimalMode literals
     UserRepository(conn, "users", User, decimal_as="str")
     UserRepository(conn, "users", User, decimal_as="int")  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
+
+
+class Cents:
+    def encode(self, field_name: str, value: object) -> object:
+        return value
+
+    def decode(self, field_name: str, value: object) -> object:
+        return value
+
+
+class NotACodec:
+    def encode(self, field_name: str, value: object) -> object:
+        return value
+
+
+def field_codec_types(conn: AsyncConnection) -> None:
+    codec: FieldCodec = Cents()
+    UserRepository(conn, "users", User, field_codecs={"name": codec})
+    UserRepository(conn, "users", User, field_codecs={"name": NotACodec()})  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
 
 
 def json_handler_types(mode: DecimalMode) -> None:
