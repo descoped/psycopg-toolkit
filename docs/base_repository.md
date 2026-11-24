@@ -238,20 +238,24 @@ async with db.connection() as conn:
 
 ### Custom Queries
 
-While the base repository provides common operations, you can extend it for custom needs:
+While the base repository provides common operations, you can extend it for custom needs.
+Fetch with `dict_row` and convert each row with `row_to_model()`, which applies the same JSON,
+vector and date handling as the built-in methods:
 
 ```python
+from psycopg.rows import dict_row
+
 class UserRepository(BaseRepository[User, UUID]):  # Specify model and primary key type
-    async def find_by_email(self, email: str) -> Optional[User]:
+    async def find_by_email(self, email: str) -> User | None:
         query = PsycopgHelper.build_select_query(
             self.table_name,
             where_clause={"email": email}
         )
-        
-        async with self.db_connection.cursor() as cur:
+
+        async with self.db_connection.cursor(row_factory=dict_row) as cur:
             await cur.execute(query, [email])
-            result = await cur.fetchone()
-            return User(**result) if result else None
+            row = await cur.fetchone()
+            return self.row_to_model(row) if row else None
 ```
 
 ### Batch Operations

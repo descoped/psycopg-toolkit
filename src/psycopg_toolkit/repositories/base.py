@@ -1,5 +1,5 @@
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
 from contextlib import asynccontextmanager
 from datetime import date, datetime
 from typing import Any, Generic, TypeVar
@@ -388,8 +388,30 @@ class BaseRepository(Generic[T, K]):
         logger.debug("Postprocessed %s JSON fields for %s", len(self._json_fields), self.table_name)
         return processed_data
 
-    def _row_to_model(self, row: Any) -> T:
-        """Convert a database row (mapping) into the model, postprocessing JSON/date/vector fields."""
+    def row_to_model(self, row: Mapping[str, Any]) -> T:
+        """Convert a fetched row into the model, applying the repository's field handling.
+
+        Use this in custom queries instead of building the model yourself: it decodes JSON fields,
+        parses vector fields and converts date fields exactly as the built-in methods do. Fetch
+        with ``row_factory=dict_row`` so rows are mappings.
+
+        Args:
+            row: A row as a mapping of column name to value, e.g. from ``dict_row``. Not modified.
+
+        Returns:
+            T: The validated model instance.
+
+        Raises:
+            JSONDeserializationError: If a JSON field cannot be decoded and strict_json_processing is True.
+            pydantic.ValidationError: If the row does not validate against the model.
+
+        Example:
+            ```python
+            async with self.db_connection.cursor(row_factory=dict_row) as cur:
+                await cur.execute(query, params)
+                return [self.row_to_model(row) for row in await cur.fetchall()]
+            ```
+        """
         return self.model_class(**self._postprocess_data(dict(row)))
 
     @asynccontextmanager
@@ -449,7 +471,7 @@ class BaseRepository(Generic[T, K]):
                 if not result:
                     raise OperationError(f"Failed to create {self.table_name} record")
 
-                return self._row_to_model(result)
+                return self.row_to_model(result)
 
     async def create_bulk(self, items: list[T], batch_size: int = 100) -> list[T]:
         """
@@ -501,7 +523,7 @@ class BaseRepository(Generic[T, K]):
                         await cur.execute(full_query, batch_values)
                         results = await cur.fetchall()
 
-                        all_results.extend(self._row_to_model(row) for row in results)
+                        all_results.extend(self.row_to_model(row) for row in results)
             return all_results
 
     async def get_by_id(self, record_id: K) -> T:
@@ -540,7 +562,7 @@ class BaseRepository(Generic[T, K]):
                 if not result:
                     raise RecordNotFoundError(f"Record with id {record_id} not found")
 
-                return self._row_to_model(result)
+                return self.row_to_model(result)
 
     async def get_all(self) -> list[T]:
         """
@@ -575,7 +597,7 @@ class BaseRepository(Generic[T, K]):
             await cur.execute(query)
             rows = await cur.fetchall()
 
-            return [self._row_to_model(row) for row in rows]
+            return [self.row_to_model(row) for row in rows]
 
     async def update(self, record_id: K, data: dict[str, Any]) -> T:
         """
@@ -620,7 +642,7 @@ class BaseRepository(Generic[T, K]):
                 if not result:
                     raise RecordNotFoundError(f"Record with id {record_id} not found")
 
-                return self._row_to_model(result)
+                return self.row_to_model(result)
 
     async def delete(self, record_id: K) -> None:
         """
