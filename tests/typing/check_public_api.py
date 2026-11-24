@@ -1,7 +1,8 @@
 """Static type checks for the public API, verified by pyright (not collected by pytest).
 
-Run: `pyright tests/typing`. Each `assert_type` must hold, and each `pyright: ignore[...]`
-marks an error that MUST occur: reportUnnecessaryTypeIgnoreComment fails the check if a
+Run: `pyright tests/typing` and `uv run ty check`. Each `assert_type` must hold, and each
+`pyright: ignore[...]` / `ty: ignore[...]` marks an error that MUST occur: pyright's
+reportUnnecessaryTypeIgnoreComment and ty's unused-ignore-comment fail the check if a
 deliberately wrong usage stops being an error.
 """
 
@@ -43,16 +44,16 @@ async def repository_types(conn: AsyncConnection, user_id: UUID, user: User) -> 
     assert_type(await repo.exists(user_id), bool)
 
     # The model type must be a Pydantic model
-    BaseRepository[NotAModel, int]  # pyright: ignore[reportInvalidTypeArguments]
+    BaseRepository[NotAModel, int]  # pyright: ignore[reportInvalidTypeArguments]  # ty: ignore[invalid-type-arguments]
 
     # decimal_as only accepts the DecimalMode literals
     UserRepository(conn, "users", User, decimal_as="str")
-    UserRepository(conn, "users", User, decimal_as="int")  # pyright: ignore[reportArgumentType]
+    UserRepository(conn, "users", User, decimal_as="int")  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
 
 
 def json_handler_types(mode: DecimalMode) -> None:
     assert_type(JSONHandler.serialize({}, decimal_as=mode), str)
-    JSONHandler.serialize({}, decimal_as="decimal")  # pyright: ignore[reportArgumentType]
+    JSONHandler.serialize({}, decimal_as="decimal")  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
 
 
 def helper_types(data: dict[str, object]) -> None:

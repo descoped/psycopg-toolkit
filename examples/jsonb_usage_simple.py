@@ -156,6 +156,7 @@ async def demo_user_operations(db: Database):
 
         # Retrieve and display user
         retrieved = await user_repo.get_by_id(created_user.id)
+        assert retrieved.profile_data is not None
         print(f"✅ Retrieved user: {retrieved.username}")
         print(f"   Theme: {retrieved.preferences['theme']}")
         print(f"   Skills: {', '.join(retrieved.profile_data['skills'])}")
@@ -300,6 +301,7 @@ async def demo_jsonb_updates(db: Database, user_id: uuid.UUID):
             [user_id],
         )
         result = await cur.fetchone()
+        assert result is not None
         print(f"   ✅ Added sidebar_collapsed: {result[0]}")
 
         # Update 2: Add skill to array
@@ -318,6 +320,7 @@ async def demo_jsonb_updates(db: Database, user_id: uuid.UUID):
             [user_id],
         )
         result = await cur.fetchone()
+        assert result is not None
         print(f"   ✅ Updated skills: {result[0]}")
 
         # Update 3: Update nested object
@@ -336,6 +339,7 @@ async def demo_jsonb_updates(db: Database, user_id: uuid.UUID):
             [f'"{datetime.now().isoformat()}"', user_id],
         )
         result = await cur.fetchone()
+        assert result is not None
         print(f"   ✅ Updated last_login: {result[0]}")
 
 

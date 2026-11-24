@@ -495,6 +495,8 @@ class TestJSONBPerformanceExtended:
                             )
 
                     iterations = 10  # Fewer iterations for bulk
+                else:
+                    raise ValueError(f"Unknown insert scenario: {scenario}")
 
             elif "query" in scenario.lower():
 
@@ -573,6 +575,9 @@ class TestJSONBPerformanceExtended:
                                     "performance",
                                 ],
                             )
+
+            else:
+                raise ValueError(f"Unknown scenario: {scenario}")
 
             # Measure performance
             jsonb_result = await measure_time(jsonb_op, iterations=iterations, warmup=5)

@@ -104,6 +104,8 @@ async def setup_database(container_db_url: str):
     from urllib.parse import urlparse
 
     parsed = urlparse(container_db_url.replace("postgresql+psycopg2", "postgresql"))
+    if not (parsed.hostname and parsed.port and parsed.username and parsed.password):
+        raise ValueError(f"Incomplete database URL: {container_db_url}")
 
     settings = DatabaseSettings(
         host=parsed.hostname,
@@ -179,6 +181,7 @@ async def demo_array_fields(db: Database):
         # Verify arrays are stored correctly
         result = await conn.execute("SELECT redirect_uris, grant_types FROM oauth_clients WHERE id = %s", [created.id])
         row = await result.fetchone()
+        assert row is not None
         print("\nDirect DB query - Arrays preserved:")
         print(f"  redirect_uris: {row[0]} (type: {type(row[0])})")
         print(f"  grant_types: {row[1]} (type: {type(row[1])})")

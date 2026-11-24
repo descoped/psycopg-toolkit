@@ -31,6 +31,7 @@ This is **psycopg-toolkit**, a robust PostgreSQL database toolkit for Python app
   - Unit tests only: `uv run pytest tests/unit/`
 - **Build package**: `uv build`
 - **Lint code**: `uv run ruff check`
+- **Type check**: `uv run ty check` (strict, `[tool.ty]` in pyproject: src, tests, examples at Python 3.11) and `npx --yes pyright@1.1.414 src tests/typing`; both run in CI and must report zero diagnostics. Suppress a single line only, with `# ty: ignore[<rule>]` and a reason
 - **Format code**: `uv run ruff format`
 - **Fix linting issues**: `uv run ruff check --fix`
 - **Test coverage**: `uv run pytest --cov=src/psycopg_toolkit --cov-report=html`

@@ -5,7 +5,7 @@ from collections.abc import AsyncGenerator
 from unittest.mock import patch
 
 import pytest
-from psycopg import OperationalError
+from psycopg import AsyncConnection, OperationalError
 from tenacity import RetryError
 
 from psycopg_toolkit import Database, DatabasePoolError, DatabaseSettings
@@ -25,8 +25,10 @@ def _settings(base: DatabaseSettings, **overrides: object) -> DatabaseSettings:
     return DatabaseSettings(**values)  # type: ignore[arg-type]
 
 
-async def _show_timeout(conn) -> str:  # type: ignore[no-untyped-def]
-    return (await (await conn.execute("SHOW statement_timeout")).fetchone())[0]
+async def _show_timeout(conn: AsyncConnection) -> str:
+    row = await (await conn.execute("SHOW statement_timeout")).fetchone()
+    assert row is not None
+    return str(row[0])
 
 
 @pytest.fixture
