@@ -155,6 +155,16 @@ class BaseRepository(Generic[T, K]):
             self._json_fields = set()
             logger.debug("JSON field processing disabled for %s", table_name)
 
+        # JSON fields whose model type admits a plain str: there a str is a JSON string value,
+        # so it is serialized on write and not decoded again on read. For dict/list-only fields
+        # a str stays what it has always been: an already-serialized JSON document.
+        model_fields = model_class.model_fields
+        self._str_json_fields: set[str] = {
+            name
+            for name in self._json_fields
+            if name in model_fields and TypeInspector.accepts_str(model_fields[name].annotation)
+        }
+
         # Cache for performance and configuration
         self._auto_detect_json = auto_detect_json
         self._auto_detect_vector = auto_detect_vector
@@ -254,8 +264,9 @@ class BaseRepository(Generic[T, K]):
                             value=value,
                             original_error=e,
                         ) from e
-                elif not isinstance(value, str):
-                    # Value is not dict/list/str, try to serialize it anyway
+                elif not isinstance(value, str) or field_name in self._str_json_fields:
+                    # Not dict/list: serialize it as a JSON value. A str is serialized only where
+                    # the field accepts str; elsewhere it is an already-serialized document.
                     try:
                         serialized = JSONHandler.serialize(value, decimal_as=self._decimal_as)
                         processed_data[field_name] = serialized
@@ -350,6 +361,10 @@ class BaseRepository(Generic[T, K]):
                 if not isinstance(serialized_value, str | bytes):
                     # psycopg always decodes json/jsonb columns to Python objects,
                     # so a dict/list here is already deserialized
+                    continue
+                if isinstance(serialized_value, str) and field_name in self._str_json_fields:
+                    # A JSON string value psycopg has already decoded; decoding it again would turn
+                    # "123" into 123 or fail on "hello".
                     continue
                 try:
                     deserialized_value = JSONHandler.deserialize(serialized_value)

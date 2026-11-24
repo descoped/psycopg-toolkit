@@ -1,7 +1,10 @@
-from dataclasses import dataclass
+import math
+from dataclasses import asdict, dataclass
 from typing import Any
 
 from psycopg.conninfo import make_conninfo
+
+_CONNECTION_FIELDS = ("host", "port", "dbname", "user", "password")
 
 
 @dataclass
@@ -68,8 +71,9 @@ class DatabaseSettings:
             "user": self.user,
             "password": self.password,
         }
-        if timeout:
-            params["connect_timeout"] = int(timeout)
+        if timeout is not None and timeout > 0:
+            # libpq takes whole seconds and reads 0 as 'wait forever', so round up: 0.5 must not become 0.
+            params["connect_timeout"] = max(1, math.ceil(timeout))
         return make_conninfo(**params)
 
     def to_dict(self, connection_only: bool = True) -> dict[str, Any]:
@@ -77,30 +81,11 @@ class DatabaseSettings:
 
         Args:
             connection_only (bool): If True, include only connection parameters.
-                                  If False, include all settings including pool configuration.
+                                  If False, include every setting, pool and timeout configuration included.
 
         Returns:
             Dict[str, Any]: Dictionary containing the settings
         """
         if connection_only:
-            return {
-                "host": self.host,
-                "port": self.port,
-                "dbname": self.dbname,
-                "user": self.user,
-                "password": self.password,
-            }
-
-        return {
-            "host": self.host,
-            "port": self.port,
-            "dbname": self.dbname,
-            "user": self.user,
-            "password": self.password,
-            "min_pool_size": self.min_pool_size,
-            "max_pool_size": self.max_pool_size,
-            "pool_timeout": self.pool_timeout,
-            "connection_timeout": self.connection_timeout,
-            "statement_timeout": self.statement_timeout,
-            "enable_json_adapters": self.enable_json_adapters,
-        }
+            return {name: getattr(self, name) for name in _CONNECTION_FIELDS}
+        return asdict(self)

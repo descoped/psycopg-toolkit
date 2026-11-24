@@ -3,10 +3,7 @@ import json as stdlib_json
 import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, cast
-
-if TYPE_CHECKING:
-    from .transaction import TransactionManager
+from typing import cast
 
 from psycopg import AsyncConnection, sql
 from psycopg.types import json
@@ -15,6 +12,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ..exceptions import DatabaseConnectionError, DatabasePoolError
 from .config import DatabaseSettings
+from .transaction import TransactionManager
 
 logger = logging.getLogger(__name__)
 
@@ -264,17 +262,15 @@ class Database:
         """
         return self._pool is not None and not self._pool.closed
 
-    async def get_transaction_manager(self) -> "TransactionManager":
+    async def get_transaction_manager(self) -> TransactionManager:
         """Get existing transaction manager or create new one.
 
         Returns:
             TransactionManager: Active transaction manager
         """
         if not self._transaction_manager:
-            from .factory import create_transaction_manager
-
             pool = await self.get_pool()
-            self._transaction_manager = create_transaction_manager(pool, self._configure_json_adapters)
+            self._transaction_manager = TransactionManager(pool, self._configure_json_adapters)
         return self._transaction_manager
 
     @asynccontextmanager

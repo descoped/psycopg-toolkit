@@ -177,12 +177,27 @@ try:
     user = await repository.get_by_id(user_id)
 except RecordNotFoundError:
     # Record doesn't exist - handle missing data
-    logger.warning(f"User {user_id} not found")
+    logger.warning("User %s not found", user_id)
 except OperationError as e:
-    # Database operation failed - handle error
-    logger.error(f"Database error: {e}")
-    # Contains original exception in .original_error
+    # Database operation failed - the driver's exception is chained as e.__cause__
+    logger.error("Database error: %s (cause: %r)", e, e.__cause__)
 ```
+
+What each method raises:
+
+| Exception | When |
+|---|---|
+| `RecordNotFoundError` | `get_by_id`, `update` or `delete` find no row with that id |
+| `JSONSerializationError` | a JSON field cannot be serialized (`create`, `update`) |
+| `JSONDeserializationError` | a JSON field cannot be decoded and `strict_json_processing=True` |
+| `OperationError` | any other failure; the original exception is `__cause__` |
+
+`JSONSerializationError` and `JSONDeserializationError` carry `field_name` and `original_error`.
+All of these derive from `RepositoryError`, so `except RepositoryError` catches every repository
+failure.
+
+Logging: the repository logs each failure once, at ERROR, where it raises it. A missing record is an
+expected outcome and is logged at DEBUG only.
 
 ## Practical Usage Patterns
 
