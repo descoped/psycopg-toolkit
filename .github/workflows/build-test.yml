@@ -14,6 +14,10 @@ on:
     paths-ignore:
       - '**.md'
 
+env:
+  # uv version used by CI; kept current by Renovate. Pinned so CI resolves and builds like the lockfile was made.
+  UV_VERSION: '0.13.9'
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -36,10 +40,12 @@ jobs:
 
     - name: Install uv
       uses: astral-sh/setup-uv@v10.4.0
+      with:
+        version: ${{ env.UV_VERSION }}
 
     - name: Install dependencies
       run: |
-        uv sync --all-groups
+        uv sync --all-groups --locked
     
     - name: Run linting
       run: |
@@ -88,6 +94,8 @@ jobs:
 
     - name: Install uv
       uses: astral-sh/setup-uv@v10.4.0
+      with:
+        version: ${{ env.UV_VERSION }}
 
     - name: Build package
       run: |
@@ -98,9 +106,9 @@ jobs:
         # Check that the wheel was built
         ls -la dist/
         # Verify the package structure
-        uv run python -m zipfile -l dist/*.whl | head -20
+        uv run --no-project python -m zipfile -l dist/*.whl | head -20
         # PEP 561: without py.typed, type checkers ignore the package's annotations
-        uv run python -m zipfile -l dist/*.whl | grep -q 'psycopg_toolkit/py.typed'
+        uv run --no-project python -m zipfile -l dist/*.whl | grep -q 'psycopg_toolkit/py.typed'
         # Editor settings must not ship in the sdist
         ! tar tzf dist/*.tar.gz | grep -q '\.vscode/'
         

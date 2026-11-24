@@ -18,6 +18,8 @@ on:
       - 'tests/performance/**'
 
 env:
+  # uv version used by CI; kept current by Renovate. Pinned so CI resolves and builds like the lockfile was made.
+  UV_VERSION: '0.13.9'
   PYTHON_VERSION: '3.13'
 
 jobs:
@@ -35,10 +37,12 @@ jobs:
 
     - name: Install uv
       uses: astral-sh/setup-uv@v10.4.0
+      with:
+        version: ${{ env.UV_VERSION }}
 
     - name: Install dependencies
       run: |
-        uv sync --all-groups
+        uv sync --all-groups --locked
     
     # Schema setup handled by test fixtures
     
