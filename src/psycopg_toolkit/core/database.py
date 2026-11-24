@@ -156,10 +156,15 @@ class Database:
 
         try:
             await pool.open()
-        except Exception as e:
-            logger.error("Could not open connection pool: %s", e)
+        except BaseException as e:
+            # Close on any exit, cancellation included, so a half-opened pool's workers and
+            # connections do not outlive the failed call. Only errors become DatabasePoolError;
+            # CancelledError and KeyboardInterrupt propagate unchanged.
             await pool.close()
-            raise DatabasePoolError("Failed to open pool") from e
+            if isinstance(e, Exception):
+                logger.error("Could not open connection pool: %s", e)
+                raise DatabasePoolError("Failed to open pool") from e
+            raise
 
         self._pool = pool
         return pool
