@@ -117,9 +117,6 @@ try:
 except DatabaseConnectionError as e:
     # Connection error handling
     print(f"Connection failed: {e.original_error}")
-except DatabaseNotAvailable as e:
-    # Database unavailable
-    print(f"Database not available: {e}")
 except DatabasePoolError as e:
     # Pool error
     print(f"Pool error: {e}")

@@ -24,7 +24,9 @@ A robust PostgreSQL database toolkit providing enterprise-grade connection pooli
 - Connection health monitoring and validation
 - Database initialization callback system
 - Statement timeout configuration
-- Fully typed with modern Python type hints
+- Lossless `Decimal` in JSON fields by default (`decimal_as`)
+- `row_to_model()` for custom queries, and pluggable per-field codecs (`field_codecs`)
+- Fully typed (`py.typed`), checked with pyright and ty
 
 ## Installation
 
@@ -99,6 +101,9 @@ async with tm.transaction(savepoint="user_creation") as conn:
 ### Repository Pattern
 
 ```python
+from uuid import UUID
+
+from psycopg import AsyncConnection
 from pydantic import BaseModel
 from psycopg_toolkit import BaseRepository
 
@@ -106,7 +111,7 @@ class User(BaseModel):
     id: UUID
     email: str
 
-class UserRepository(BaseRepository[User]):
+class UserRepository(BaseRepository[User, UUID]):  # model type, primary key type
     def __init__(self, conn: AsyncConnection):
         super().__init__(
             db_connection=conn,
@@ -118,13 +123,29 @@ class UserRepository(BaseRepository[User]):
 # Usage
 async with tm.transaction() as conn:
     repo = UserRepository(conn)
-    user = await repo.get_by_id(user_id)
+    user = await repo.get_by_id(user_id)  # raises RecordNotFoundError if missing
+```
+
+For custom queries, fetch rows with `dict_row` and convert them with `row_to_model()`, which applies
+the same JSON, vector and date handling as the built-in methods:
+
+```python
+from psycopg.rows import dict_row
+from psycopg.sql import SQL, Identifier
+
+class UserRepository(BaseRepository[User, UUID]):
+    async def find_by_email(self, email: str) -> User | None:
+        query = SQL("SELECT * FROM {} WHERE email = %s").format(Identifier(self.table_name))
+        async with self.db_connection.cursor(row_factory=dict_row) as cur:
+            await cur.execute(query, [email])
+            row = await cur.fetchone()
+            return self.row_to_model(row) if row else None
 ```
 
 ### JSONB Support
 
 ```python
-from typing import Dict, List, Any
+from typing import Any
 from pydantic import BaseModel
 from psycopg_toolkit import BaseRepository
 
@@ -132,9 +153,9 @@ class UserProfile(BaseModel):
     id: int
     name: str
     # These fields are automatically detected as JSONB
-    metadata: Dict[str, Any]
-    preferences: Dict[str, str]
-    tags: List[str]
+    metadata: dict[str, Any]
+    preferences: dict[str, str]
+    tags: list[str]
 
 class UserRepository(BaseRepository[UserProfile, int]):
     def __init__(self, conn):
@@ -160,20 +181,23 @@ created_user = await repo.create(user)
 retrieved_user = await repo.get_by_id(1)
 ```
 
+A `Decimal` inside a JSON field is stored as a JSON string, so no digits are lost; pass
+`decimal_as="float"` for a JSON number. See [JSONB Support](docs/jsonb_support.md).
+
 ### PostgreSQL Arrays and Date Fields
 
 ```python
-from typing import List
-from datetime import date
+from typing import Any
+from uuid import UUID, uuid4
 from pydantic import BaseModel
 from psycopg_toolkit import BaseRepository
 
 class User(BaseModel):
     id: UUID
     username: str
-    roles: List[str]          # PostgreSQL TEXT[] array
-    permissions: List[str]    # PostgreSQL TEXT[] array
-    metadata: Dict[str, Any]  # JSONB field
+    roles: list[str]          # PostgreSQL TEXT[] array
+    permissions: list[str]    # PostgreSQL TEXT[] array
+    metadata: dict[str, Any]  # JSONB field
     birthdate: str            # ISO date string (from DATE)
     created_at: str           # ISO datetime string (from TIMESTAMP)
     updated_at: str           # ISO datetime string (from TIMESTAMPTZ)
@@ -235,8 +259,8 @@ async with tm.with_schema(UserSchemaManager()) as _:
 from psycopg_toolkit import (
     DatabaseConnectionError,
     DatabasePoolError,
-    DatabaseNotAvailable,
-    RecordNotFoundError
+    JSONSerializationError,
+    RecordNotFoundError,
 )
 
 try:
@@ -250,388 +274,96 @@ except RecordNotFoundError:
 ```
 
 
-## Testing with Async Libraries
+## Testing with psycopg-toolkit
 
-### Understanding the pytest and Async Boundary
+A connection pool belongs to the event loop that opened it: its background workers run as tasks in
+that loop. pytest-asyncio gives each test its own loop by default, so a pool has to live in the same
+loop as the tests that use it.
 
-When testing async libraries like `async-task-worker` or database libraries (e.g., `psycopg-toolkit`), you'll encounter a fundamental challenge: pytest's session-scoped fixtures are synchronous, while modern libraries are increasingly async. This section explains the problem and provides the recommended patterns for handling this boundary.
+### Recommended: a `Database` per test
 
-#### The Core Problem
-
-pytest's fixture system was designed before async became prevalent in Python:
-- **Session fixtures are synchronous**: They run once per test session and must be sync functions
-- **Modern libraries are async**: Database pools, task workers, and connections require `await`
-- **Resource efficiency matters**: You want to reuse expensive resources (containers, pools) across tests
-
-This creates an awkward boundary where you need async resources in sync fixture setup.
-
-#### The Standard Solution: `asyncio.run()`
-
-The accepted pattern in the Python testing community is using `asyncio.run()` in session fixtures. While it may feel inelegant, this is the recommended approach documented in pytest-asyncio's own examples.
+Start the PostgreSQL container once per session (a plain, synchronous fixture), and create the
+`Database` in each test's own loop. This is how this project's own test suite works.
 
 ```python
-import pytest
-import asyncio
-from async_task_worker import AsyncTaskWorker
+from collections.abc import AsyncGenerator, Generator
 
-@pytest.fixture(scope="session")
-def worker():
-    """Session-scoped worker for test efficiency.
-    
-    This uses asyncio.run() to bridge the sync/async boundary.
-    This is the standard pattern for async resources in session fixtures.
-    """
-    # Create the worker
-    worker = AsyncTaskWorker(max_workers=5)
-    
-    # Start it using asyncio.run() - the standard workaround
-    asyncio.run(worker.start())
-    
-    yield worker
-    
-    # Cleanup
-    asyncio.run(worker.stop())
-
-# Your async tests can then use the worker normally
-@pytest.mark.asyncio
-async def test_task_execution(worker):
-    task_id = await worker.add_task(my_task, data)
-    result = await worker.get_task_future(task_id)
-    assert result == expected
-```
-
-### Complete Testing Pattern
-
-Here's a comprehensive example showing best practices for testing async-task-worker:
-
-```python
 import pytest
 import pytest_asyncio
-import asyncio
-from datetime import datetime
-from async_task_worker import AsyncTaskWorker, task, TaskStatus
+from testcontainers.community.postgres import PostgresContainer
 
-# ============================================================
-# Session Fixtures (Synchronous with asyncio.run())
-# ============================================================
+from psycopg_toolkit import Database, DatabaseSettings
+
 
 @pytest.fixture(scope="session")
-def event_loop_policy():
-    """Use a specific event loop policy for tests."""
-    return asyncio.get_event_loop_policy()
+def db_settings() -> Generator[DatabaseSettings, None, None]:
+    with PostgresContainer("pgvector/pgvector:pg18") as pg:
+        yield DatabaseSettings(
+            host=pg.get_container_host_ip(),
+            port=int(pg.get_exposed_port(5432)),
+            dbname=pg.dbname,
+            user=pg.username,
+            password=pg.password,
+            min_pool_size=1,
+            max_pool_size=4,
+        )
 
-@pytest.fixture(scope="session")
-def worker():
-    """Create a session-scoped worker instance.
-    
-    Note: We use asyncio.run() here because session fixtures
-    must be synchronous. This is the standard pattern.
-    """
-    worker = AsyncTaskWorker(
-        max_workers=3,
-        task_timeout=10,
-        cache_enabled=True,
-        cache_ttl=60
-    )
-    
-    # Start the worker using asyncio.run()
-    asyncio.run(worker.start())
-    
-    yield worker
-    
-    # Cleanup
-    asyncio.run(worker.stop())
-
-# ============================================================
-# Function-Scoped Async Fixtures (Can use async/await)
-# ============================================================
 
 @pytest_asyncio.fixture
-async def clean_worker(worker):
-    """Provides a clean worker state for each test."""
-    # Clear any existing tasks
-    tasks = worker.get_all_tasks()
-    for task in tasks:
-        if task.status in ("pending", "running"):
-            await worker.cancel_task(task.id)
-    
-    # Clear cache if enabled
-    if worker.cache:
-        await worker.clear_cache()
-    
-    yield worker
-    
-    # Post-test cleanup if needed
-    # ...
+async def db(db_settings: DatabaseSettings) -> AsyncGenerator[Database, None]:
+    database = Database(db_settings)
+    await database.init_db()
+    yield database
+    await database.cleanup()
 
-# ============================================================
-# Test Task Definitions
-# ============================================================
 
-@task("test_computation")
-async def test_computation(value, delay=0.1, progress_callback=None):
-    """A test task that simulates computation."""
-    steps = 5
-    result = value
-    
-    for i in range(steps):
-        await asyncio.sleep(delay)
-        result = result * 2
-        
-        if progress_callback:
-            progress_callback((i + 1) / steps)
-    
-    return result
-
-@task("test_failing_task")
-async def test_failing_task(should_fail=True):
-    """A task that can be configured to fail."""
-    if should_fail:
-        raise ValueError("Task failed as expected")
-    return "success"
-
-# ============================================================
-# Test Cases
-# ============================================================
-
-@pytest.mark.asyncio
-async def test_basic_task_execution(clean_worker):
-    """Test basic task execution flow."""
-    # Add a task
-    task_id = await clean_worker.add_task(
-        test_computation,
-        value=2,
-        delay=0.01
-    )
-    
-    # Wait for completion
-    result = await clean_worker.get_task_future(task_id)
-    
-    # Verify result (2 * 2^5 = 64)
-    assert result == 64
-    
-    # Check task info
-    info = clean_worker.get_task_info(task_id)
-    assert info.status == TaskStatus.COMPLETED
-    assert info.progress == 1.0
-
-@pytest.mark.asyncio
-async def test_task_cancellation(clean_worker):
-    """Test task cancellation."""
-    # Start a long-running task
-    task_id = await clean_worker.add_task(
-        test_computation,
-        value=1,
-        delay=1.0  # Long delay
-    )
-    
-    # Cancel it
-    cancelled = await clean_worker.cancel_task(task_id)
-    assert cancelled
-    
-    # Verify status
-    info = clean_worker.get_task_info(task_id)
-    assert info.status == TaskStatus.CANCELLED
-
-@pytest.mark.asyncio
-async def test_cache_functionality(clean_worker):
-    """Test caching of task results."""
-    # First execution
-    task_id1 = await clean_worker.add_task(
-        test_computation,
-        value=3,
-        delay=0.01,
-        use_cache=True
-    )
-    result1 = await clean_worker.get_task_future(task_id1)
-    
-    # Second execution with same args (should hit cache)
-    start_time = datetime.now()
-    task_id2 = await clean_worker.add_task(
-        test_computation,
-        value=3,
-        delay=0.01,  # This delay won't happen due to cache
-        use_cache=True
-    )
-    result2 = await clean_worker.get_task_future(task_id2)
-    elapsed = (datetime.now() - start_time).total_seconds()
-    
-    # Results should match
-    assert result1 == result2
-    
-    # Second execution should be much faster (cache hit)
-    assert elapsed < 0.05  # Much less than the task delay
-
-@pytest.mark.asyncio
-async def test_concurrent_tasks(clean_worker):
-    """Test concurrent task execution."""
-    # Add multiple tasks
-    task_ids = []
-    for i in range(5):
-        task_id = await clean_worker.add_task(
-            test_computation,
-            value=i,
-            delay=0.01
-        )
-        task_ids.append(task_id)
-    
-    # Wait for all to complete
-    futures = clean_worker.get_task_futures(task_ids)
-    results = await asyncio.gather(*futures)
-    
-    # Verify all completed
-    assert len(results) == 5
-    for i, result in enumerate(results):
-        assert result == i * (2 ** 5)
-
-# ============================================================
-# Testing Utilities
-# ============================================================
-
-class TaskMonitor:
-    """Utility class for monitoring task execution in tests."""
-    
-    def __init__(self, worker: AsyncTaskWorker):
-        self.worker = worker
-        self.events = []
-    
-    async def monitor_task(self, task_id: str, timeout: float = 5.0):
-        """Monitor a task until completion or timeout."""
-        start_time = asyncio.get_event_loop().time()
-        
-        while asyncio.get_event_loop().time() - start_time < timeout:
-            info = self.worker.get_task_info(task_id)
-            self.events.append({
-                "time": asyncio.get_event_loop().time() - start_time,
-                "status": info.status,
-                "progress": info.progress
-            })
-            
-            if info.status not in ("pending", "running"):
-                return info
-            
-            await asyncio.sleep(0.1)
-        
-        raise TimeoutError(f"Task {task_id} did not complete within {timeout}s")
-
-@pytest.mark.asyncio
-async def test_with_monitor(clean_worker):
-    """Example of using the TaskMonitor utility."""
-    monitor = TaskMonitor(clean_worker)
-    
-    task_id = await clean_worker.add_task(
-        test_computation,
-        value=5,
-        delay=0.1
-    )
-    
-    # Monitor the task
-    final_info = await monitor.monitor_task(task_id)
-    
-    # Check the monitoring captured progress
-    assert len(monitor.events) > 0
-    assert final_info.status == TaskStatus.COMPLETED
-    
-    # Verify progress increased over time
-    progresses = [e["progress"] for e in monitor.events]
-    assert progresses[-1] == 1.0
-```
-
-### Testing with Database Libraries (e.g., psycopg-toolkit)
-
-The same pattern applies when testing with async database libraries:
-
-```python
-import pytest
-import asyncio
-from psycopg_toolkit import Database
-
-@pytest.fixture(scope="session")
-def db():
-    """Session-scoped database connection.
-    
-    Uses asyncio.run() to handle async operations in sync fixture.
-    This is the standard pattern for pytest with async resources.
-    """
-    db = Database("postgresql://user:pass@localhost/test")
-    
-    # Create the pool synchronously using asyncio.run()
-    asyncio.run(db.get_pool())
-    
-    yield db
-    
-    # Cleanup
-    asyncio.run(db.cleanup())
-
-@pytest.fixture(scope="function")
-async def db_connection(db):
-    """Function-scoped connection from the session pool."""
+async def test_select(db: Database) -> None:
     async with db.connection() as conn:
-        yield conn
-        # Automatic cleanup via context manager
+        row = await (await conn.execute("SELECT 1")).fetchone()
+    assert row == (1,)
 ```
 
-### Key Takeaways
+Opening a small pool per test costs milliseconds against a local container. If anything else that
+uses the pool (an ASGI test server, a worker) is a fixture too, make it depend on `db`, so pytest
+stops it before the pool closes.
 
-1. **The `asyncio.run()` pattern is correct**: Don't feel bad about using it in session fixtures - it's the standard solution
-2. **Session vs Function Scope**: Use session fixtures for expensive resources (pools, workers) and function fixtures for cleanup
-3. **The awkwardness is pytest's limitation, not your design**: Your async library doesn't need sync wrappers
-4. **Document the pattern**: Help users understand why `asyncio.run()` appears in test fixtures
+### Sharing one pool: share one loop
 
-### Additional Testing Resources
+To reuse a pool across tests, run the fixture and those tests in the same session-scoped loop:
 
-- **pytest-asyncio**: The standard pytest plugin for async testing
-- **pytest-timeout**: Useful for preventing hanging async tests
-- **asyncio-test**: Utilities for testing asyncio code
-- **Testing async generators**: Use `async for` in tests or `aioitertools` for utilities
-
-### Common Pitfalls and Solutions
-
-#### Pitfall 1: Event Loop Conflicts
 ```python
-# Wrong - Creates new event loop
-def test_something():
-    loop = asyncio.new_event_loop()
-    loop.run_until_complete(my_async_func())
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def shared_db(db_settings: DatabaseSettings) -> AsyncGenerator[Database, None]:
+    database = Database(db_settings)
+    await database.init_db()
+    yield database
+    await database.cleanup()
 
-# Right - Use pytest-asyncio
-@pytest.mark.asyncio
-async def test_something():
-    await my_async_func()
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_with_shared_pool(shared_db: Database) -> None:
+    async with shared_db.connection() as conn:
+        await conn.execute("SELECT 1")
 ```
 
-#### Pitfall 2: Forgetting Cleanup
+Every test that uses `shared_db` needs `loop_scope="session"` (or set
+`asyncio_default_test_loop_scope = "session"` in the pytest configuration). Tests then share state,
+so use transactions that roll back to keep them independent.
+
+### Don't: open the pool with `asyncio.run()` in a fixture
+
 ```python
-# Wrong - No cleanup
-@pytest.fixture
-def worker():
-    w = AsyncTaskWorker()
-    asyncio.run(w.start())
-    return w
-
-# Right - Proper cleanup
-@pytest.fixture
-def worker():
-    w = AsyncTaskWorker()
-    asyncio.run(w.start())
-    yield w
-    asyncio.run(w.stop())
+@pytest.fixture(scope="session")
+def db(db_settings):
+    database = Database(db_settings)
+    asyncio.run(database.get_pool())  # the pool's loop closes when asyncio.run() returns
+    yield database
+    asyncio.run(database.cleanup())
 ```
 
-#### Pitfall 3: Mixing Sync and Async Incorrectly
-```python
-# Wrong - Can't await in sync function
-def test_task(worker):
-    result = await worker.add_task(...)  # SyntaxError
-
-# Right - Mark as async test
-@pytest.mark.asyncio
-async def test_task(worker):
-    result = await worker.add_task(...)
-```
-
-By following these patterns, you can effectively test async-task-worker and similar async libraries while maintaining clean, efficient test suites.
-
+`asyncio.run()` closes its loop on return, which stops the pool's workers. Tests running in their
+own loops then wait for connections that never arrive: with pytest-asyncio 1.5 and psycopg-pool
+3.3 the first test hangs.
 
 ## Documentation
 
@@ -669,7 +401,7 @@ uv run pytest --cov=src/psycopg_toolkit --cov-report=html
 The test suite is organized into three categories:
 
 - **Unit tests**: Fast, isolated tests that don't require a database (in `tests/unit/`)
-- **Integration tests**: Tests that require a real PostgreSQL database (in `tests/` root)
+- **Integration tests**: Tests that require a real PostgreSQL database (in `tests/integration/`, using testcontainers)
 - **Performance tests**: Benchmarks and performance measurements (marked with `@pytest.mark.performance`)
 
 Performance tests are excluded by default to keep the regular test runs fast. Use the `-m performance` flag to run them explicitly.

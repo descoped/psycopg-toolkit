@@ -126,7 +126,7 @@ uv run pytest --cov=src/psycopg_toolkit --cov-report=html
 uv run pytest tests/unit/test_json_handler.py -v
 
 # JSONB basic operations
-uv run pytest tests/test_jsonb_basic.py -v
+uv run pytest tests/integration/test_jsonb_basic.py -v
 ```
 
 ## Test Markers
