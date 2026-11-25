@@ -38,7 +38,7 @@ The toolkit's JSONB support includes:
 ## Quick Start
 
 ```python
-from typing import Dict, List, Any
+from typing import Any
 from pydantic import BaseModel
 from psycopg_toolkit import Database, BaseRepository
 
@@ -46,9 +46,9 @@ from psycopg_toolkit import Database, BaseRepository
 class UserProfile(BaseModel):
     id: int
     name: str
-    metadata: Dict[str, Any]      # Automatically detected as JSON field
-    preferences: Dict[str, str]   # Automatically detected as JSON field
-    tags: List[str]               # Automatically detected as JSON field
+    metadata: dict[str, Any]      # Automatically detected as JSON field
+    preferences: dict[str, str]   # Automatically detected as JSON field
+    tags: list[str]               # Automatically detected as JSON field
 
 # Create repository - JSON fields detected automatically
 class UserRepository(BaseRepository[UserProfile, int]):
@@ -87,28 +87,37 @@ async with db.connection() as conn:
 The toolkit automatically detects JSON fields from Pydantic type hints:
 
 ```python
-from typing import Dict, List, Optional, Any, Union
+from typing import Any
 
 class ProductModel(BaseModel):
     # These fields are automatically detected as JSON:
-    specifications: Dict[str, Any]           # Dictionary -> JSON
-    categories: List[str]                    # List -> JSON
-    metadata: Dict[str, Union[str, int]]     # Complex Dict -> JSON
-    optional_data: Optional[Dict[str, Any]]  # Optional Dict -> JSON
+    specifications: dict[str, Any]           # Dictionary -> JSON
+    categories: list[str]                    # List -> JSON
+    metadata: dict[str, str | int]     # Complex Dict -> JSON
+    optional_data: dict[str, Any] | None  # Optional Dict -> JSON
     
     # These fields are NOT detected as JSON:
     name: str                                # String -> TEXT
     price: float                             # Float -> NUMERIC
-    description: Optional[str]               # Optional String -> TEXT
+    description: str | None               # Optional String -> TEXT
     tags_json: str                           # String -> TEXT (even if contains JSON)
 ```
 
 **Supported JSON Types:**
-- `Dict[K, V]` - Any dictionary type
-- `List[T]` - Any list type  
-- `Optional[Dict[K, V]]` - Optional dictionaries
-- `Optional[List[T]]` - Optional lists
-- `Union` types containing dictionaries or lists
+- `dict[K, V]` - Any dictionary type
+- `list[T]` - Any list type  
+- `dict[K, V] | None` - Optional dictionaries
+- `list[T] | None` - Optional lists
+- Unions (`X | Y`) containing dictionaries or lists
+
+A bare `typing.List` or `typing.Dict` (no type arguments) is not detected as JSON; write `list[...]`
+or `dict[...]`, or list the field in `json_fields`. A `list[float]` is a pgvector field, not JSON
+(see `vector_fields`).
+
+**Strings in JSON fields:** when a JSON field's type also accepts `str` (for example
+`dict[str, Any] | str` or `Any`), a `str` value is stored as a JSON string and comes back as the
+same `str`. When the type is only dicts or lists, a `str` value is taken to be already-serialized
+JSON and is stored as is.
 
 ### Manual Configuration
 
@@ -139,9 +148,9 @@ For a complete working example, see [examples/array_and_date_fields.py](../examp
 class OAuthClient(BaseModel):
     id: UUID
     client_id: str
-    redirect_uris: List[str]      # PostgreSQL TEXT[] array
-    grant_types: List[str]        # PostgreSQL TEXT[] array
-    metadata: Dict[str, Any]      # JSONB field
+    redirect_uris: list[str]      # PostgreSQL TEXT[] array
+    grant_types: list[str]        # PostgreSQL TEXT[] array
+    metadata: dict[str, Any]      # JSONB field
 
 class ClientRepository(BaseRepository[OAuthClient, UUID]):
     def __init__(self, db_connection):
@@ -170,11 +179,11 @@ For a complete working example, see [examples/array_and_date_fields.py](../examp
 class User(BaseModel):
     id: UUID
     username: str
-    birthdate: Optional[str]  # PostgreSQL DATE column
+    birthdate: str | None  # PostgreSQL DATE column
     created_at: str           # PostgreSQL TIMESTAMP/TIMESTAMPTZ column
     updated_at: str           # PostgreSQL TIMESTAMP/TIMESTAMPTZ column
-    last_login: Optional[str] # PostgreSQL TIMESTAMP/TIMESTAMPTZ column (nullable)
-    metadata: Dict[str, Any]
+    last_login: str | None # PostgreSQL TIMESTAMP/TIMESTAMPTZ column (nullable)
+    metadata: dict[str, Any]
 
 class UserRepository(BaseRepository[User, UUID]):
     def __init__(self, db_connection):
@@ -835,11 +844,11 @@ async def test_jsonb_roundtrip(db_with_jsonb):
 class AppConfig(BaseModel):
     id: int
     name: str
-    settings: Dict[str, Any]
-    features: List[str]
+    settings: dict[str, Any]
+    features: list[str]
     
 class ConfigRepository(BaseRepository[AppConfig, int]):
-    async def get_feature_config(self, feature: str) -> Optional[Dict]:
+    async def get_feature_config(self, feature: str) -> dict[str, Any] | None:
         """Get configuration for specific feature"""
         async with self.db_connection.cursor() as cur:
             await cur.execute("""
@@ -873,8 +882,8 @@ class EventLog(BaseModel):
     id: int
     event_type: str
     timestamp: datetime
-    data: Dict[str, Any]
-    metadata: Optional[Dict[str, Any]] = None
+    data: dict[str, Any]
+    metadata: dict[str, Any] | None = None
 
 class EventRepository(BaseRepository[EventLog, int]):
     async def log_user_action(self, user_id: int, action: str, **kwargs):

@@ -371,7 +371,8 @@ psycopg-toolkit/
 │   │   └── transaction.py  # Transaction management
 │   ├── repositories/
 │   │   ├── __init__.py
-│   │   └── base.py         # BaseRepository with JSONB & pgvector
+│   │   ├── base.py         # BaseRepository with JSONB & pgvector
+│   │   └── codecs.py       # FieldCodec protocol; date, vector and JSON codecs
 │   ├── utils/
 │   │   ├── __init__.py
 │   │   ├── json_handler.py     # JSON serialization
@@ -379,27 +380,10 @@ psycopg-toolkit/
 │   │   └── type_inspector.py   # Type detection (JSON & vector)
 │   └── exceptions.py       # Exception hierarchy
 ├── tests/
-│   ├── unit/               # Unit tests (mocked)
-│   │   ├── test_base_repository.py
-│   │   ├── test_base_repository_data_processing.py
-│   │   ├── test_custom_json_encoder.py
-│   │   ├── test_database.py
-│   │   ├── test_field_detection.py
-│   │   ├── test_json_exceptions.py
-│   │   ├── test_json_handler.py
-│   │   ├── test_transaction.py
-│   │   └── test_type_inspector.py (includes vector tests)
-│   ├── integration/        # Integration tests (testcontainers)
-│   │   ├── test_database_container.py
-│   │   ├── test_jsonb_basic.py
-│   │   ├── test_jsonb_edge_cases.py
-│   │   ├── test_jsonb_queries.py
-│   │   ├── test_jsonb_transactions.py
-│   │   ├── test_array_fields.py
-│   │   ├── test_date_fields.py
-│   │   └── test_pgvector.py    # pgvector integration tests
-│   ├── performance/        # Performance benchmarks
-│   │   └── test_jsonb_performance.py
+│   ├── unit/               # Unit tests (mocked, no database), incl. codecs, row_to_model, decimal_as
+│   ├── integration/        # Integration tests (testcontainers, pgvector/pgvector:pg18)
+│   ├── performance/        # Performance benchmarks (-m performance)
+│   ├── typing/             # check_public_api.py: assert_type checks of the public API (pyright gate)
 │   ├── repositories/       # Test utilities
 │   │   └── jsonb_repositories.py
 │   ├── sql/               # Test database schema

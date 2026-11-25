@@ -296,7 +296,7 @@ or wrapped in `Json()`. `row_to_model()` and every built-in method apply it.
 For efficient bulk operations:
 
 ```python
-async def create_users_batch(users: List[User]):
+async def create_users_batch(users: list[User]):
     # Efficient bulk insert with customizable batch size
     # Larger batch sizes can improve performance but use more memory
     created = await repository.create_bulk(users, batch_size=100)
@@ -380,7 +380,7 @@ The BaseRepository provides comprehensive support for PostgreSQL's JSONB data ty
 JSON fields are automatically detected from Pydantic type hints:
 
 ```python
-from typing import Dict, List, Optional, Any
+from typing import Any
 from pydantic import BaseModel
 from psycopg_toolkit import BaseRepository
 
@@ -390,10 +390,10 @@ class UserProfile(BaseModel):
     email: str
     
     # These fields are automatically detected as JSONB
-    metadata: Dict[str, Any]              # Dictionary -> JSONB
-    preferences: Dict[str, str]           # String dictionary -> JSONB  
-    tags: List[str]                       # List -> JSONB
-    profile_data: Optional[Dict[str, Any]] = None  # Optional dict -> JSONB
+    metadata: dict[str, Any]              # Dictionary -> JSONB
+    preferences: dict[str, str]           # String dictionary -> JSONB  
+    tags: list[str]                       # List -> JSONB
+    profile_data: dict[str, Any] | None = None  # Optional dict -> JSONB
 
 class UserRepository(BaseRepository[UserProfile, int]):
     def __init__(self, db_connection):

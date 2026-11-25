@@ -327,8 +327,7 @@ sequenceDiagram
         D->>+R: retry_operation()
     end
 
-    loop Retry with Exponential Backoff
-        R->>R: calculate_delay
+    loop Up to connect_retries attempts, exponential backoff (4-10 s)
         R->>R: wait
         R->>+P: get_connection()
         
@@ -336,8 +335,8 @@ sequenceDiagram
             P-->>R: connection
             R-->>-D: connection
             D-->>A: success
-        else Max Retries Exceeded
-            R-->>D: RetryError
+        else All attempts failed
+            R-->>D: last connection error
             D-->>A: DatabaseConnectionError
         end
     end
@@ -347,11 +346,12 @@ sequenceDiagram
     Note right of A: PsycoDBException
     Note right of A: ├── DatabaseConnectionError
     Note right of A: ├── DatabasePoolError
-    Note right of A: ├── DatabaseNotAvailable
+    Note right of A: ├── DatabaseNotAvailable (exported, not raised)
     Note right of A: └── RepositoryError
     Note right of A: ├── RecordNotFoundError
     Note right of A: ├── InvalidDataError
-    Note right of A: └── OperationError
+    Note right of A: ├── OperationError
+    Note right of A: └── JSONProcessingError
 ```
 
 ### Schema management lifecycle
